@@ -547,19 +547,8 @@ export class Player {
            seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), disp.clone().normalize());
          }
          seg.renderOrder = 998;
-         // pooled meshes are already added to the scene at construction
-         seg.visible = true;
+         this.scene.add(seg);
          this._bulletTrails.push({ mesh: seg, life: trailLife, baseLife: trailLife });
-
-        // safety cap: avoid unbounded trail accumulation that kills FPS
-        if (this._bulletTrails.length > this._maxTrails) {
-          const oldest = this._bulletTrails.shift();
-          if (oldest) {
-            // return to pool without removing from scene
-            oldest.mesh.visible = false;
-            this._trailPool.push(oldest.mesh);
-          }
-        }
 
         if (targets?.testBullet(p)) {
           this._spawnImpact(p);
@@ -615,7 +604,7 @@ export class Player {
       const t = this._bulletTrails[i];
       t.life -= decayDt;
       if (t.life <= 0) {
-        // never remove from scene — just hide and return to pool
+        this.scene.remove(t.mesh);
         t.mesh.visible = false;
         this._trailPool.push(t.mesh);
         this._bulletTrails.splice(i, 1);
