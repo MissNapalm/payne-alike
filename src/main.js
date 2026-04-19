@@ -9,9 +9,12 @@ const scene    = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0e1a);
 scene.fog = new THREE.Fog(0x0a0e1a, 30, 55);
 const camera   = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 100);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// clamp DPR — 1.25 is usually a good compromise on HiDPI displays; set to 1.0 for max perf
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
+// disable shadow map if not needed (costly)
+renderer.shadowMap.enabled = false;
 document.body.appendChild(renderer.domElement);
 
 const input       = new Input();
@@ -163,7 +166,7 @@ document.title = 'Neuro Runner';
 
   // mission blurb (create or update)
   let blurb = document.getElementById('title-text');
-  const text = "You are Case Rogue, famous hacker in 2084. Your job is to jack into cyberspace and clear the viruses out of the system";
+  const text = "You are Case Rogue, famous hacker in 2084. Your job is to jack into cyberspace and clear the viruses out of the mainframe";
   if (!blurb) {
     blurb = document.createElement('div');
     blurb.id = 'title-text';

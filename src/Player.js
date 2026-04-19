@@ -122,8 +122,18 @@ export class Player {
     // when bullets linger inside very-slow bubbles).
     this._trailPool = [];
     this._trailProtoGeo = new THREE.BoxGeometry(1, 1, 1); // reused geometry for trail segments
-    this._trailProtoMat = this._trailMat; // base material (will be cloned per instance only once)
-    this._maxTrails = 800; // safety cap
+    this._trailProtoMat = this._trailMat;
+    // reduce max live trail segments to avoid draw call & memory pressure in slowmo
+    this._maxTrails = 250;
+    // prefill a small pool of reusable meshes to avoid runtime allocation spikes
+    const PREALLOC = 60;
+    for (let i = 0; i < PREALLOC; i++) {
+      const mat = this._trailProtoMat.clone();
+      const m = new THREE.Mesh(this._trailProtoGeo, mat);
+      m.frustumCulled = true;
+      m.visible = false;
+      this._trailPool.push(m);
+    }
 
     // Wall-run trails
     this._wallTrails = [];
@@ -517,19 +527,26 @@ export class Player {
         const sizeMul = 0.6 / Math.max(0.05, effectiveScaleForTrails); // larger in slow-mo (but Q treated like dive)
         const length = Math.max(0.02, disp.length()); // ensure visible even for tiny steps
         const width  = 0.008 * sizeMul;
-        const geo = new THREE.BoxGeometry(width, length, width);
-        const mat = this._trailMat.clone();
-        mat.opacity = Math.min(1.0, 0.55 * sizeMul);
-        const seg = new THREE.Mesh(geo, mat);
-        // place segment at midpoint between prev and current
-        seg.position.copy(p).sub(disp.clone().multiplyScalar(0.5));
-        // orient the segment to align its Y axis with the displacement
-        if (disp.lengthSq() > 1e-8) {
-          seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), disp.clone().normalize());
+
+        // reuse pooled mesh to avoid allocations
+        let seg = this._trailPool.pop();
+        if (!seg) {
+          const mat = this._trailProtoMat.clone();
+          seg = new THREE.Mesh(this._trailProtoGeo, mat);
+          seg.frustumCulled = true;
         }
-        seg.renderOrder = 998;
-        this.scene.add(seg);
-        this._bulletTrails.push({ mesh: seg, life: trailLife, baseLife: trailLife });
+        seg.visible = true;
+        seg.scale.set(width, length, width);
+        seg.material.opacity = Math.min(1.0, 0.55 * sizeMul);
+         // place segment at midpoint between prev and current
+         seg.position.copy(p).sub(disp.clone().multiplyScalar(0.5));
+         // orient the segment to align its Y axis with the displacement
+         if (disp.lengthSq() > 1e-8) {
+           seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), disp.clone().normalize());
+         }
+         seg.renderOrder = 998;
+         this.scene.add(seg);
+         this._bulletTrails.push({ mesh: seg, life: trailLife, baseLife: trailLife });
 
         if (targets?.testBullet(p)) {
           this._spawnImpact(p);
@@ -586,9 +603,8 @@ export class Player {
       t.life -= decayDt;
       if (t.life <= 0) {
         this.scene.remove(t.mesh);
-        // dispose geometry/material to avoid memory leak
-        if (t.mesh.geometry) t.mesh.geometry.dispose();
-        if (t.mesh.material) t.mesh.material.dispose();
+        t.mesh.visible = false;
+        this._trailPool.push(t.mesh);
         this._bulletTrails.splice(i, 1);
       } else {
         const ratio = t.life / t.baseLife;
