@@ -17,7 +17,7 @@ const WR_DURATION      = 2.0;
 const WJ_SIDE          = 6.5;
 const WJ_UP            = 8.5;
 const CAM_ROLL_MAX     = 0.18;
-const FLIP_SPEED       = Math.PI * 6.5; // full flip in ~0.31 s
+const FLIP_SPEED       = Math.PI * 3.5; // tuck arc over ~0.57 s
 const BULLET_SPEED     = 55;
 const BULLET_LIFE      = 2.5;
 const FIRE_RATE        = 0.20;           // seconds between shots
@@ -26,7 +26,6 @@ const BT_DURATION      = 6.0;
 const BT_SCALE         = 0.1;
 const DIVE_SPEED       = 4;
 const DIVE_UP          = 6;
-const DIVE_SCALE       = 0.8;
 const DIVE_GRAVITY     = GRAVITY * 0.55;
 const DIVE_COOLDOWN    = 2.0;
 
@@ -45,7 +44,7 @@ export class Player {
 
     this.grounded       = false;
     this.jumps          = 0;
-    this.sensitivityMul = 2.0;
+    this.sensitivityMul = 5.0;
 
     this._spacePrev    = false;
     this._prevY        = 0;
@@ -80,6 +79,10 @@ export class Player {
     this.timeScale       = 1.0;
     this.bulletTimeLeft  = 0;
     this._qPrev          = false;
+    this._rmbPrev        = false;
+    this._btSlow         = false;
+    this._fPrev          = false;
+    this._fCooldown      = 0;
 
     this._flashTimer = 0;
     this._muzzleFlash = new THREE.Mesh(
@@ -190,7 +193,7 @@ export class Player {
     return root;
   }
 
-  update(realDt, input, boxes, targets) {
+  update(realDt, input, boxes, targets, timeBubbles) {
     // ── Dive input ───────────────────────────────────────────────────────────
     const shiftDown = input.key('ShiftLeft') || input.key('ShiftRight');
     if (shiftDown && !this._shiftPrev && !this._diving && this._diveCooldown <= 0) {
@@ -229,14 +232,31 @@ export class Player {
 
     // ── Time scale (dive slow-mo > Q bullet time > normal) ───────────────────
     const qDown = input.key('KeyQ');
-    if (qDown && !this._qPrev && this.bulletTimeLeft <= 0) this.bulletTimeLeft = BT_DURATION;
-    this._qPrev = qDown;
+    const rmbDown = input.mouseBtn(1);
+    if (qDown && !this._qPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = false; }
+    if (rmbDown && !this._rmbPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = true; }
+    this._qPrev   = qDown;
+    this._rmbPrev = rmbDown;
     if (this.bulletTimeLeft > 0) this.bulletTimeLeft = Math.max(0, this.bulletTimeLeft - realDt);
 
-    this.timeScale = this._diveSlow          ? DIVE_SCALE
-                   : this.bulletTimeLeft > 0 ? BT_SCALE
-                   : 1.0;
-    const dt = realDt * this.timeScale;
+    // F key → throw grenade; bubble opens where it lands after 2 bounces
+    if (this._fCooldown > 0) this._fCooldown -= realDt;
+    const fDown = input.key('KeyF');
+    if (fDown && !this._fPrev && this._fCooldown <= 0 && timeBubbles) {
+      const throwOrigin = this.pos.clone().setY(this.pos.y + 1.1);
+      const throwDir = new THREE.Vector3();
+      this.camera.getWorldDirection(throwDir);
+      timeBubbles.throwGrenade(throwOrigin, throwDir);
+      this._fCooldown = 2.0;
+    }
+    this._fPrev = fDown;
+
+    const targetScale = (this._diveSlow || this.bulletTimeLeft > 0) ? BT_SCALE : 1.0;
+    const rampSpeed   = this._diveSlow ? 6 : this._btSlow ? 0.5 : 1.2;
+    this.timeScale += (targetScale - this.timeScale) * Math.min(1, rampSpeed * realDt);
+    this._timeBubbles = timeBubbles;
+    const bubbleScale = timeBubbles ? timeBubbles.timeScaleAt(this.pos) : 1.0;
+    const dt = realDt * this.timeScale * bubbleScale;
 
     this._look(input);
     this._handleFire(realDt, input);
@@ -270,7 +290,7 @@ export class Player {
     this.pos.y += this.vel.y * dt;
     this._resolveV(boxes);
 
-    this._updateBullets(dt, realDt, boxes, targets);
+    this._updateBullets(dt, realDt, boxes, targets, timeBubbles);
     this._updateImpacts(realDt);
     this._animateMesh(dt);
     this._updateCamera();
@@ -287,44 +307,46 @@ export class Player {
     }
   }
 
-  _handWorldPos() {
+  _handWorldPos(side = 1) {
     const dir = new THREE.Vector3();
     this.camera.getWorldDirection(dir);
     if (this._diveTilt > 0) {
-      // Compute shoulder world position from the actual tilted mesh pose
-      const diveYaw = Math.atan2(this._diveDir.x, this._diveDir.z);
+      const diveYaw  = Math.atan2(this._diveDir.x, this._diveDir.z);
       const uprightQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), diveYaw);
-      const meshQ = uprightQ.clone().slerp(this._diveQ(), this._diveTilt);
+      const meshQ    = uprightQ.clone().slerp(this._diveQ(), this._diveTilt);
       const rotatedPivot = new THREE.Vector3(0, 0.95, 0).applyQuaternion(meshQ);
-      const meshPos = new THREE.Vector3(
-        this.pos.x - rotatedPivot.x,
-        this._meshDiveY,
-        this.pos.z - rotatedPivot.z
+      const meshPos  = new THREE.Vector3(
+        this.pos.x - rotatedPivot.x, this._meshDiveY, this.pos.z - rotatedPivot.z
       );
-      const armOffset = new THREE.Vector3(0.225, 1.10, 0).applyQuaternion(meshQ);
+      const armOffset = new THREE.Vector3(side * 0.225, 1.10, 0).applyQuaternion(meshQ);
       return meshPos.add(armOffset).addScaledVector(dir, 0.47);
     }
     const meshRight = new THREE.Vector3(Math.cos(this._meshYaw), 0, -Math.sin(this._meshYaw));
     return new THREE.Vector3(this.pos.x, this.pos.y + 1.10, this.pos.z)
-      .addScaledVector(meshRight, 0.225)
+      .addScaledVector(meshRight, side * 0.225)
       .addScaledVector(dir, 0.47);
   }
 
   _spawnBullet() {
-    // Project crosshair ray 200 units out, then fire from hand toward that point
-    const camFwd = new THREE.Vector3();
+    this._spawnOneBullet(-1);
+    this._spawnOneBullet( 1);
+    this._flashTimer = 0.07;
+  }
+
+  _spawnOneBullet(side) {
+    const camFwd   = new THREE.Vector3();
     this.camera.getWorldDirection(camFwd);
     const aimPoint = this.camera.position.clone().addScaledVector(camFwd, 200);
-    const origin = this._handWorldPos();
-    const dir = aimPoint.sub(origin).normalize();
+    const origin   = this._handWorldPos(side);
+    const dir      = aimPoint.clone().sub(origin).normalize();
 
     const mesh = new THREE.Mesh(this._bulletGeo, this._bulletMat);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     mesh.position.copy(origin);
     this.scene.add(mesh);
 
-    this._bullets.push({ mesh, vel: dir.clone().multiplyScalar(BULLET_SPEED), life: BULLET_LIFE });
-    this._flashTimer = 0.07;
+    const insideBubble = this._timeBubbles && this._timeBubbles.timeScaleAt(this.pos) < 0.99;
+    this._bullets.push({ mesh, vel: dir.multiplyScalar(BULLET_SPEED), life: BULLET_LIFE, fastBullet: insideBubble });
   }
 
   _updateMuzzleFlash(realDt) {
@@ -335,7 +357,7 @@ export class Player {
       const hand = this._handWorldPos();
       const t = this._flashTimer / 0.07;
       this._muzzleFlash.position.copy(hand);
-      this._muzzleFlash.scale.setScalar(0.5 + t * 0.7 + Math.random() * 0.2);
+      this._muzzleFlash.scale.setScalar(1.3 + t * 1.5 + Math.random() * 0.4);
       this._muzzleLight.position.copy(hand);
       this._muzzleLight.intensity = t * 8;
     } else {
@@ -343,35 +365,34 @@ export class Player {
     }
   }
 
-  _updateBullets(dt, realDt, boxes, targets) {
+  _updateBullets(dt, _realDt, boxes, targets, timeBubbles) {
     for (let i = this._bullets.length - 1; i >= 0; i--) {
       const b = this._bullets[i];
-      b.life -= realDt;
-      b.mesh.position.addScaledVector(b.vel, dt);
+      const bScale = (b.fastBullet || !timeBubbles) ? 1.0 : timeBubbles.timeScaleAt(b.mesh.position);
+      b.mesh.position.addScaledVector(b.vel, dt * bScale);
 
       const p = b.mesh.position;
-      const expired = b.life <= 0;
 
-      if (!expired && targets?.testBullet(p)) {
+      if (targets?.testBullet(p)) {
         this._spawnImpact(p);
         this.scene.remove(b.mesh);
         this._bullets.splice(i, 1);
         continue;
       }
 
-      let hitSurface = !expired && (
+      let hitSurface = (
         p.y < 0 || p.y > 11 ||
         Math.abs(p.x) > BOUNDS + 1 ||
         Math.abs(p.z) > BOUNDS + 1
       );
-      if (!expired && !hitSurface) {
+      if (!hitSurface) {
         for (const box of boxes) {
           if (box.containsPoint(p)) { hitSurface = true; break; }
         }
       }
 
-      if (expired || hitSurface) {
-        if (hitSurface) this._spawnImpact(p);
+      if (hitSurface) {
+        this._spawnImpact(p);
         this.scene.remove(b.mesh);
         this._bullets.splice(i, 1);
       }
@@ -577,8 +598,10 @@ export class Player {
     // Keep _meshDiveY in sync when not in dive/slide so landing starts from correct y
     if (this._diveTilt <= 0) this._meshDiveY = this.pos.y;
 
-    // Right arm always driven by quaternion slerp (handles shooting, walk, idle)
-    this._rArmPivot.quaternion.slerp(this._rightArmTargetQ(), 0.30);
+    // Both arms aim when shooting; left arm follows right arm target
+    const aimQ = this._rightArmTargetQ();
+    this._rArmPivot.quaternion.slerp(aimQ, 0.30);
+    if (this._shooting) this._lArmPivot.quaternion.slerp(aimQ, 0.30);
 
     // ── shootdodge dive ──────────────────────────────────────────────────────
     if (this._diveTilt > 0) {
@@ -605,28 +628,19 @@ export class Player {
       return;
     }
 
-    // ── flip (double jump) ───────────────────────────────────────────────────
+    // ── double-jump tuck ─────────────────────────────────────────────────────
     if (this._flipping) {
       this._flipAngle += FLIP_SPEED * dt;
-      const yawQ  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this._meshYaw);
-      const flipQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), this._flipAngle);
-      this.mesh.quaternion.copy(yawQ).multiply(flipQ);
-      const pivot        = new THREE.Vector3(0, 0.95, 0);
-      const rotatedPivot = pivot.clone().applyQuaternion(this.mesh.quaternion);
-      this.mesh.position.set(
-        this.pos.x + pivot.x - rotatedPivot.x,
-        this.pos.y + pivot.y - rotatedPivot.y,
-        this.pos.z + pivot.z - rotatedPivot.z
-      );
+      // sin over [0, 2π] gives a smooth 0→1→0 tuck that peaks at midpoint
+      const tuck = Math.max(0, Math.sin(this._flipAngle / 2));
+      this._lLegPivot.rotation.x =  2.0 * tuck;
+      this._rLegPivot.rotation.x =  2.0 * tuck;
+      this._lArmPivot.rotation.x = -1.4 * tuck;
+      this.mesh.scale.set(1, 1, 1);
       if (this._flipAngle >= Math.PI * 2) {
         this._flipping  = false;
         this._flipAngle = 0;
-        this.mesh.rotation.set(0, this._meshYaw, 0);
       }
-      this._lLegPivot.rotation.x = 0.6;
-      this._rLegPivot.rotation.x = 0.6;
-      this._lArmPivot.rotation.x = -0.8;
-      this.mesh.scale.set(1, 1, 1);
       return;
     }
 

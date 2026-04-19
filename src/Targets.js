@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 
-const RADIUS       = 0.32;
-const MAX_TARGETS  = 8;
-const RESPAWN_DELAY = 4.0;
-const HIT_COLORS   = [0xffee00, 0xff9900, 0xff4400, 0xff1100];
-const BOB_SPEED    = 1.4;
-const BOB_AMP      = 0.12;
+const RADIUS         = 0.55;
+const MAX_TARGETS    = 8;
+const RESPAWN_DELAY  = 4.0;
+const HIT_COLORS     = [0xffee00, 0xff5500, 0xff0000];
+const BOB_SPEED      = 1.2;
+const BOB_AMP        = 0.08;
+const MOVE_SPEED_MIN = 1.5;
+const MOVE_SPEED_MAX = 3.5;
+const MAP_HALF       = 16;
+const Y_MIN          = 0.9;
+const Y_MAX          = 4.5;
 
 const SPAWN_SPOTS = [
   [ 8,  0.6,  3 ],  [ -8, 1.2, -4 ], [ 12, 1.0, -8 ],  [  0, 1.6, -10],
@@ -15,15 +20,23 @@ const SPAWN_SPOTS = [
 
 export class Targets {
   constructor(scene) {
-    this.scene    = scene;
-    this._targets = [];
-    this._queue   = [];
-    this._geo     = new THREE.SphereGeometry(RADIUS, 10, 7);
-    this._debGeo  = new THREE.SphereGeometry(0.07, 5, 4);
+    this.scene     = scene;
+    this._targets  = [];
+    this._queue    = [];
+    this._geo      = new THREE.SphereGeometry(RADIUS, 10, 7);
+    this._debGeo   = new THREE.SphereGeometry(0.09, 5, 4);
     this._shockGeo = new THREE.SphereGeometry(0.15, 8, 6);
     this._usedSpots = new Set();
 
     for (let i = 0; i < MAX_TARGETS; i++) this._spawnTarget();
+  }
+
+  _randomWaypoint() {
+    return new THREE.Vector3(
+      (Math.random() - 0.5) * MAP_HALF * 2,
+      Y_MIN + Math.random() * (Y_MAX - Y_MIN),
+      (Math.random() - 0.5) * MAP_HALF * 2,
+    );
   }
 
   _randomSpot() {
@@ -39,9 +52,17 @@ export class Targets {
     if (!spot) return;
     const mat  = new THREE.MeshLambertMaterial({ color: HIT_COLORS[0], emissive: 0x443300 });
     const mesh = new THREE.Mesh(this._geo, mat);
-    mesh.position.copy(spot.pos).y += 0.5;
+    const center = spot.pos.clone();
+    center.y += 0.5;
+    mesh.position.copy(center);
     this.scene.add(mesh);
-    this._targets.push({ mesh, mat, hp: 4, spotIdx: spot.idx, baseY: spot.pos.y + 0.5, phase: Math.random() * Math.PI * 2 });
+    this._targets.push({
+      mesh, mat, hp: 3, spotIdx: spot.idx,
+      center: center.clone(),
+      phase: Math.random() * Math.PI * 2,
+      waypoint: this._randomWaypoint(),
+      speed: MOVE_SPEED_MIN + Math.random() * (MOVE_SPEED_MAX - MOVE_SPEED_MIN),
+    });
   }
 
   testBullet(pos) {
@@ -56,7 +77,7 @@ export class Targets {
           this._targets.splice(i, 1);
           this._queue.push(RESPAWN_DELAY);
         } else {
-          t.mat.color.setHex(HIT_COLORS[4 - t.hp]);
+          t.mat.color.setHex(HIT_COLORS[3 - t.hp]);
         }
         return true;
       }
@@ -65,28 +86,25 @@ export class Targets {
   }
 
   _explode(pos) {
-    // shockwave ring
     const shockMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.9, wireframe: true });
     const shock = new THREE.Mesh(this._shockGeo, shockMat);
     shock.position.copy(pos);
     this.scene.add(shock);
 
-    // debris particles
     const debris = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 12; i++) {
       const m = new THREE.Mesh(this._debGeo, new THREE.MeshBasicMaterial({ color: 0xffcc00 }));
       m.position.copy(pos);
       const v = new THREE.Vector3(
-        (Math.random() - 0.5) * 14,
-        Math.random() * 8 + 3,
-        (Math.random() - 0.5) * 14
+        (Math.random() - 0.5) * 16,
+        Math.random() * 9 + 3,
+        (Math.random() - 0.5) * 16
       );
       this.scene.add(m);
       debris.push({ mesh: m, vel: v });
     }
 
-    // flash light
-    const light = new THREE.PointLight(0xff8800, 12, 10);
+    const light = new THREE.PointLight(0xff8800, 14, 12);
     light.position.copy(pos);
     this.scene.add(light);
 
@@ -95,7 +113,6 @@ export class Targets {
   }
 
   update(realDt) {
-    // respawn queue
     for (let i = this._queue.length - 1; i >= 0; i--) {
       this._queue[i] -= realDt;
       if (this._queue[i] <= 0) {
@@ -104,14 +121,26 @@ export class Targets {
       }
     }
 
-    // bob animation
     const t = performance.now() / 1000;
     for (const tgt of this._targets) {
-      tgt.mesh.position.y = tgt.baseY + Math.sin(t * BOB_SPEED + tgt.phase) * BOB_AMP;
+      // Move center toward waypoint
+      const toWP = new THREE.Vector3().subVectors(tgt.waypoint, tgt.center);
+      const dist = toWP.length();
+      if (dist < 0.5) {
+        tgt.waypoint = this._randomWaypoint();
+      } else {
+        const step = Math.min(tgt.speed * realDt, dist);
+        tgt.center.addScaledVector(toWP.normalize(), step);
+        tgt.center.x = Math.max(-MAP_HALF, Math.min(MAP_HALF, tgt.center.x));
+        tgt.center.z = Math.max(-MAP_HALF, Math.min(MAP_HALF, tgt.center.z));
+        tgt.center.y = Math.max(Y_MIN, Math.min(Y_MAX, tgt.center.y));
+      }
+
+      tgt.mesh.position.copy(tgt.center);
+      tgt.mesh.position.y += Math.sin(t * BOB_SPEED + tgt.phase) * BOB_AMP;
       tgt.mesh.rotation.y += realDt * 0.6;
     }
 
-    // explosion particles
     if (!this._particles) this._particles = [];
     for (let i = this._particles.length - 1; i >= 0; i--) {
       const p = this._particles[i];
@@ -124,18 +153,14 @@ export class Targets {
         this._particles.splice(i, 1);
         continue;
       }
-      // shockwave expands and fades
-      const s = 1 + (1 - f) * 7;
-      p.shock.scale.setScalar(s);
+      p.shock.scale.setScalar(1 + (1 - f) * 7);
       p.shockMat.opacity = f * 0.9;
-      // debris physics
       for (const d of p.debris) {
         d.vel.y -= 18 * realDt;
         d.mesh.position.addScaledVector(d.vel, realDt);
         if (d.mesh.position.y < 0) { d.mesh.position.y = 0; d.vel.y = 0; }
       }
-      // light fades
-      p.light.intensity = f * 12;
+      p.light.intensity = f * 14;
     }
   }
 }

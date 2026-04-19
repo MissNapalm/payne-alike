@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { Input }   from './Input.js';
-import { Player }  from './Player.js';
-import { World }   from './World.js';
-import { Targets } from './Targets.js';
+import { Input }       from './Input.js';
+import { Player }      from './Player.js';
+import { World }       from './World.js';
+import { Targets }     from './Targets.js';
+import { TimeBubbles } from './TimeBubbles.js';
 
 const scene    = new THREE.Scene();
 const camera   = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 100);
@@ -11,10 +12,11 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
 
-const input   = new Input();
-const player  = new Player(scene, camera);
-const world   = new World(scene);
-const targets = new Targets(scene);
+const input       = new Input();
+const player      = new Player(scene, camera);
+const world       = new World(scene);
+const targets     = new Targets(scene);
+const timeBubbles = new TimeBubbles(scene);
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -101,7 +103,7 @@ function loop(now) {
   const dt = Math.min((now - prev) / 1000, 0.05);
   prev = now;
   // Only update movement when pointer is locked (paused in ESC menu otherwise)
-  if (input.locked) { player.update(dt, input, world.boxes, targets); targets.update(dt); }
+  if (input.locked) { player.update(dt, input, world.boxes, targets, timeBubbles); targets.update(dt); timeBubbles.update(dt, world.boxes); }
 
   const btActive = player.timeScale < 1;
   btOverlay.style.opacity = btActive ? '1' : '0';
