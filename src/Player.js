@@ -37,6 +37,8 @@ export class Player {
   constructor(scene, camera) {
     this.scene    = scene;
     this.camera   = camera;
+    // allow using right-click for gameplay (prevent context menu)
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
 
     this.pos      = new THREE.Vector3(0, 0, 5);
     this.vel      = new THREE.Vector3();
@@ -269,7 +271,8 @@ export class Player {
 
     // ── Time scale (dive slow-mo > Q bullet time > normal) ───────────────────
     const qDown = input.key('KeyQ');
-    const rmbDown = input.mouseBtn(1);
+    // accept either standard right-button index (2) or the (previous) 1 mapping
+    const rmbDown = input.mouseBtn(2) || input.mouseBtn(1);
     if (qDown && !this._qPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = false; }
     if (rmbDown && !this._rmbPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = false; }
     this._qPrev   = qDown;
@@ -552,7 +555,7 @@ export class Player {
     const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), this._wallNormal.clone().negate());
     // random yaw to add some variation
     const yaw = (Math.random() - 0.5) * 0.9;
-    const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), yaw);
+    const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     mesh.quaternion.copy(yawQ.multiply(quat));
     mesh.renderOrder = 999;
     mesh.material.transparent = true;
