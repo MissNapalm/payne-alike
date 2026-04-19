@@ -211,7 +211,8 @@ export class Targets {
     // Orb bullets
     for (let i = this._orbBullets.length - 1; i >= 0; i--) {
       const b = this._orbBullets[i];
-      b.mesh.position.addScaledVector(b.vel, realDt);
+      const bScale = timeBubbles ? timeBubbles.bulletScaleAt(b.mesh.position) : 1.0;
+      b.mesh.position.addScaledVector(b.vel, realDt * bScale);
       const p = b.mesh.position;
       const oob = p.y < 0 || p.y > 12 || Math.abs(p.x) > 22 || Math.abs(p.z) > 22;
       if (oob) {

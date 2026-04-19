@@ -83,6 +83,22 @@ export class TimeBubbles {
         continue;
       }
 
+      // If grenade is inside any time bubble, freeze it completely (don't integrate).
+      const insideBubble = this.timeScaleAt(g.pos) < 1.0;
+      if (insideBubble) {
+        // Stop movement and pause any resting countdowns while inside.
+        g.vel.set(0, 0, 0);
+        g.frozen = true;
+        g.resting = false;
+        delete g.restTimer;
+        g.mesh.position.copy(g.pos);
+        continue; // skip physics/bounce handling while frozen
+      } else if (g.frozen) {
+        // left the bubble — resume normal physics next frame
+        g.frozen = false;
+      }
+
+      // integrate physics
       g.vel.y += GRENADE_GRAVITY * realDt;
       g.pos.addScaledVector(g.vel, realDt);
       g.mesh.position.copy(g.pos);

@@ -373,8 +373,9 @@ export class Player {
     mesh.position.copy(origin);
     this.scene.add(mesh);
 
-    const insideBubble = this._timeBubbles && this._timeBubbles.timeScaleAt(this.pos) < 0.99;
-    this._bullets.push({ mesh, vel: dir.multiplyScalar(speed), life: BULLET_LIFE, fastBullet: insideBubble });
+    // don't special-case bullets based on the shooter being inside a bubble;
+    // bullets are always slowed by bubble.scale when they are inside one.
+    this._bullets.push({ mesh, vel: dir.multiplyScalar(speed), life: BULLET_LIFE });
   }
 
   _updateMuzzleFlash(realDt) {
@@ -420,7 +421,7 @@ export class Player {
       const subDt   = dt / steps;
 
       for (let s = 0; s < steps; s++) {
-        const bScale = (b.fastBullet || !timeBubbles) ? 1.0 : timeBubbles.bulletScaleAt(b.mesh.position);
+        const bScale = timeBubbles ? timeBubbles.bulletScaleAt(b.mesh.position) : 1.0;
         b.mesh.position.addScaledVector(b.vel, subDt * bScale);
         const p = b.mesh.position;
 
@@ -685,8 +686,9 @@ export class Player {
       this.mesh.scale.set(1, 1, 1);
       this.mesh.rotation.x = 0;
       if (this._shooting) {
+        // both arms aim toward the shot target
         rQ = this._rightArmTargetQ();
-        lQ = this._weaponMode === 2 ? rQ.clone() : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.5);
+        lQ = rQ.clone();
       } else {
         rQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0),  sw * 0.5);
         lQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.5);
@@ -705,8 +707,9 @@ export class Player {
       this._lLegPivot.rotation.x =  sw;
       this._rLegPivot.rotation.x = -sw;
       if (this._shooting) {
+        // both arms aim toward the shot target
         rQ = this._rightArmTargetQ();
-        lQ = this._weaponMode === 2 ? rQ.clone() : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.45);
+        lQ = rQ.clone();
       } else {
         rQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0),  sw * 0.45);
         lQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.45);
@@ -715,16 +718,16 @@ export class Player {
       this._lLegPivot.rotation.x *= 0.7;
       this._rLegPivot.rotation.x *= 0.7;
       if (this._shooting) {
+        // both arms aim when shooting even if standing still
         rQ = this._rightArmTargetQ();
-        if (this._weaponMode === 2) lQ = rQ.clone();
-        // else lQ stays identity — left arm at side
+        lQ = rQ.clone();
       }
       // not shooting, not moving → rQ/lQ stay identity (arms hang at sides)
     } else {
       // airborne — arms straight forward (superman)
       if (this._shooting) {
         rQ = this._rightArmTargetQ();
-        if (this._weaponMode === 2) lQ = rQ.clone();
+        lQ = rQ.clone();
       } else {
         const fwd = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
         rQ = fwd;

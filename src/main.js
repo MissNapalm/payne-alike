@@ -143,7 +143,12 @@ function loop(now) {
   const dt = Math.min((now - prev) / 1000, 0.05);
   prev = now;
   // Only update movement when pointer is locked (paused in ESC menu otherwise)
-  if (input.locked) { player.update(dt, input, world.boxes, targets, timeBubbles); targets.update(dt, timeBubbles, camera, player.pos, orbsShootCb.checked); timeBubbles.update(dt, world.boxes); }
+  if (input.locked) {
+    // ensure bubbles are processed first so grenades/bullets freeze immediately
+    timeBubbles.update(dt, world.boxes);
+    player.update(dt, input, world.boxes, targets, timeBubbles);
+    targets.update(dt, timeBubbles, camera, player.pos, orbsShootCb.checked);
+  }
 
   const btActive = player.timeScale < 1;
   btOverlay.style.opacity = btActive ? '1' : '0';
