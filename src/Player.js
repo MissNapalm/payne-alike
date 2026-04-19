@@ -118,6 +118,12 @@ export class Player {
     this._bulletTrails = [];
     this._trailGeo  = new THREE.SphereGeometry(0.03, 6, 4);
     this._trailMat  = new THREE.MeshBasicMaterial({ color: 0xffee88, transparent: true, opacity: 0.6, depthWrite: false });
+    // Trail pooling to avoid allocating geometries/materials every frame (fixes huge FPS drop
+    // when bullets linger inside very-slow bubbles).
+    this._trailPool = [];
+    this._trailProtoGeo = new THREE.BoxGeometry(1, 1, 1); // reused geometry for trail segments
+    this._trailProtoMat = this._trailMat; // base material (will be cloned per instance only once)
+    this._maxTrails = 800; // safety cap
 
     // Wall-run trails
     this._wallTrails = [];
@@ -708,7 +714,7 @@ export class Player {
     if (input.key('KeyD')) dir.addScaledVector(right,  1);
 
     this._moving = dir.lengthSq() > 0;
-    if this._moving) dir.normalize();
+    if (this._moving) dir.normalize();
     this.vel.x = dir.x * SPEED * this._moveSpeedMul;
     this.vel.z = dir.z * SPEED * this._moveSpeedMul;
 
