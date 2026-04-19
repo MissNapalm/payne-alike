@@ -1,0 +1,667 @@
+import * as THREE from 'three';
+
+const SPEED            = 9.04;
+const JUMP_VEL         = 9;
+const GRAVITY          = -22;
+const CHAR_H           = 1.3;
+const PR               = 0.3;
+const BOUNDS           = 19.7;
+const BASE_SENS        = 0.001;
+const CAM_DIST         = 4.0;
+const CAM_PIVOT_H      = 1.5;
+const CAM_SIDE         = 0.65;   // over-shoulder right offset
+const MAX_JUMPS        = 2;
+const WR_GRAVITY       = -9;    // reduced gravity on wall → parabolic arc
+const WR_UPBOOST       = 4;     // vel.y set to this if near-zero when sticking
+const WR_DURATION      = 2.0;
+const WJ_SIDE          = 6.5;
+const WJ_UP            = 8.5;
+const CAM_ROLL_MAX     = 0.18;
+const FLIP_SPEED       = Math.PI * 6.5; // full flip in ~0.31 s
+const BULLET_SPEED     = 55;
+const BULLET_LIFE      = 2.5;
+const FIRE_RATE        = 0.20;           // seconds between shots
+const MAX_BULLETS      = 60;
+const BT_DURATION      = 6.0;
+const BT_SCALE         = 0.18;
+const DIVE_SPEED       = 13;
+const DIVE_UP          = 5.5;
+const DIVE_SCALE       = 0.20;
+const DIVE_GRAVITY     = GRAVITY * 0.55;
+const DIVE_COOLDOWN    = 2.0;
+
+export class Player {
+  constructor(scene, camera) {
+    this.scene    = scene;
+    this.camera   = camera;
+
+    this.pos      = new THREE.Vector3(0, 0, 5);
+    this.vel      = new THREE.Vector3();
+
+    this.camYaw   = Math.PI;   // start facing camera toward -Z (toward scene)
+    this.camPitch = 0.18;      // ~10° down — more horizontal so bullets are visible
+    this.camDist  = CAM_DIST;
+
+    this.grounded       = false;
+    this.jumps          = 0;
+    this.sensitivityMul = 2.0;
+
+    this._spacePrev    = false;
+    this._prevY        = 0;
+    this._meshYaw      = 0;
+    this._walkCycle    = 0;
+    this._moving       = false;
+    this.wallRunning   = false;
+    this._wallNormal   = null;
+    this._wallRunTimer = 0;
+    this._camRoll      = 0;
+    this._flipping     = false;
+    this._flipAngle    = 0;
+
+    this._diving       = false;
+    this._diveSlow     = false;
+    this._diveCooldown = 0;
+    this._diveTilt     = 0;
+    this._diveDir       = new THREE.Vector3();
+    this._shiftPrev     = false;
+
+    this._impacts    = [];
+    this._impactGeo  = new THREE.SphereGeometry(0.13, 5, 4);
+    this._impactMat  = new THREE.MeshBasicMaterial({ color: 0xffee55 });
+
+    this._bullets        = [];
+    this._fireTimer      = 0;
+    this._shooting       = false;
+    this._bulletGeo      = new THREE.BoxGeometry(0.07, 0.55, 0.07);
+    this._bulletMat      = new THREE.MeshBasicMaterial({ color: 0xffdd33 });
+    this.timeScale       = 1.0;
+    this.bulletTimeLeft  = 0;
+    this._qPrev          = false;
+
+    this._flashTimer = 0;
+    this._muzzleFlash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 6, 4),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    this._muzzleFlash.visible = false;
+    scene.add(this._muzzleFlash);
+    this._muzzleLight = new THREE.PointLight(0xffaa33, 0, 6);
+    scene.add(this._muzzleLight);
+
+    this.mesh = this._buildMesh();
+    scene.add(this.mesh);
+
+    // Shadow blob on floor
+    this._blob = new THREE.Mesh(
+      new THREE.CircleGeometry(0.28, 12),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 })
+    );
+    this._blob.rotation.x = -Math.PI / 2;
+    this._blob.position.y = 0.01;
+    scene.add(this._blob);
+  }
+
+  _buildMesh() {
+    const root = new THREE.Group();
+    const mat  = new THREE.MeshBasicMaterial({ color: 0x44ffcc, wireframe: true });
+
+    // HEAD
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), mat);
+    head.position.y = 1.27;
+    root.add(head);
+
+    // NECK
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.053, 0.11, 6), mat);
+    neck.position.y = 1.17;
+    root.add(neck);
+
+    // CHEST — wider at top (shoulders), tapers to waist
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.118, 0.27, 8), mat);
+    chest.position.y = 0.97;
+    root.add(chest);
+
+    // WAIST — narrowest point
+    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.110, 0.155, 0.17, 8), mat);
+    waist.position.y = 0.748;
+    root.add(waist);
+
+    // HIPS — wider than waist, feminine silhouette
+    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 8), mat);
+    hips.position.y = 0.595;
+    root.add(hips);
+
+    // ARMS — pivot at shoulder joint
+    for (const [xs, prop] of [[-1, '_lArmPivot'], [1, '_rArmPivot']]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(xs * 0.225, 1.10, 0);
+
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.25, 6), mat);
+      upper.position.y = -0.125;
+      pivot.add(upper);
+
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.040, 6, 4), mat);
+      elbow.position.y = -0.25;
+      pivot.add(elbow);
+
+      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.029, 0.22, 6), mat);
+      fore.position.y = -0.36;
+      pivot.add(fore);
+
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.036, 6, 4), mat);
+      hand.position.y = -0.47;
+      pivot.add(hand);
+
+      this[prop] = pivot;
+      root.add(pivot);
+    }
+
+    // LEGS — pivot at hip joint
+    for (const [xs, prop] of [[-1, '_lLegPivot'], [1, '_rLegPivot']]) {
+      const pivot = new THREE.Group();
+      pivot.position.set(xs * 0.10, 0.522, 0);
+
+      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.070, 0.055, 0.26, 6), mat);
+      thigh.position.y = -0.13;
+      pivot.add(thigh);
+
+      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 6, 4), mat);
+      knee.position.y = -0.26;
+      pivot.add(knee);
+
+      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.034, 0.24, 6), mat);
+      shin.position.y = -0.38;
+      pivot.add(shin);
+
+      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 6, 4), mat);
+      ankle.position.y = -0.50;
+      pivot.add(ankle);
+
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.055, 0.20), mat);
+      foot.position.set(0, -0.522, 0.04);
+      pivot.add(foot);
+
+      this[prop] = pivot;
+      root.add(pivot);
+    }
+
+    return root;
+  }
+
+  update(realDt, input, boxes, targets) {
+    // ── Dive input ───────────────────────────────────────────────────────────
+    const shiftDown = input.key('ShiftLeft') || input.key('ShiftRight');
+    if (shiftDown && !this._shiftPrev && !this._diving && this._diveCooldown <= 0) {
+      const fwd   = new THREE.Vector3(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw));
+      const right = new THREE.Vector3( Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
+      const diveDir = new THREE.Vector3();
+      if (input.key('KeyW')) diveDir.addScaledVector(fwd,    1);
+      if (input.key('KeyS')) diveDir.addScaledVector(fwd,   -1);
+      if (input.key('KeyA')) diveDir.addScaledVector(right, -1);
+      if (input.key('KeyD')) diveDir.addScaledVector(right,  1);
+      if (diveDir.lengthSq() < 0.01) diveDir.copy(fwd);
+      diveDir.normalize();
+      this._diveDir.copy(diveDir);
+      this.vel.set(diveDir.x * DIVE_SPEED, DIVE_UP, diveDir.z * DIVE_SPEED);
+      this._diving       = true;
+      this._diveSlow     = true;
+      this._diveCooldown = DIVE_COOLDOWN;
+      this._diveTilt     = 0;
+      this.grounded      = false;
+      this.jumps         = MAX_JUMPS;
+    }
+    this._shiftPrev = shiftDown;
+    if (this._diveCooldown > 0) this._diveCooldown -= realDt;
+
+    // Releasing shift mid-dive cancels bullet time but keeps the dive pose
+    if (this._diving && !shiftDown) this._diveSlow = false;
+    // Landing ends both dive and bullet time
+    if (this._diving && this.grounded) { this._diving = false; this._diveSlow = false; }
+
+    // Tilt ramps to 1 in 0.15s during dive, ramps back to 0 in 0.20s after landing
+    this._diveTilt = this._diving
+      ? Math.min(1, this._diveTilt + realDt / 0.15)
+      : Math.max(0, this._diveTilt - realDt / 0.20);
+
+    // ── Time scale (dive slow-mo > Q bullet time > normal) ───────────────────
+    const qDown = input.key('KeyQ');
+    if (qDown && !this._qPrev && this.bulletTimeLeft <= 0) this.bulletTimeLeft = BT_DURATION;
+    this._qPrev = qDown;
+    if (this.bulletTimeLeft > 0) this.bulletTimeLeft = Math.max(0, this.bulletTimeLeft - realDt);
+
+    this.timeScale = this._diveSlow          ? DIVE_SCALE
+                   : this.bulletTimeLeft > 0 ? BT_SCALE
+                   : 1.0;
+    const dt = realDt * this.timeScale;
+
+    this._look(input);
+    this._handleFire(realDt, input);
+    if (!this._diving) this._setHorizVel(input);
+
+    // dive uses real-time physics so the arc is a full leap, not a 25cm hop
+    const physDt = this._diving ? realDt : dt;
+
+    // horizontal
+    this._wallNormal = null;
+    this.pos.x += this.vel.x * physDt;
+    this.pos.z += this.vel.z * physDt;
+    this._resolveH(boxes);
+    this._clampBounds();
+
+    if (!this._diving) {
+      this._updateWallRun(dt);
+      this._handleJump(input);
+    }
+
+    // vertical
+    if (!this.grounded) {
+      const grav = this._diving ? DIVE_GRAVITY : this.wallRunning ? WR_GRAVITY : GRAVITY;
+      this.vel.y += grav * physDt;
+    }
+    this._prevY = this.pos.y;
+    this.pos.y += this.vel.y * physDt;
+    this._resolveV(boxes);
+
+    this._updateBullets(dt, realDt, boxes, targets);
+    this._updateImpacts(realDt);
+    this._animateMesh(dt);
+    this._updateCamera();
+    this._updateMuzzleFlash(realDt);
+    this._blob.position.set(this.pos.x, 0.01, this.pos.z);
+  }
+
+  _handleFire(realDt, input) {
+    this._shooting = input.mouseBtn(0);
+    this._fireTimer = Math.max(0, this._fireTimer - realDt);
+    if (this._shooting && this._fireTimer <= 0 && this._bullets.length < MAX_BULLETS) {
+      this._spawnBullet();
+      this._fireTimer = FIRE_RATE;
+    }
+  }
+
+  _handWorldPos() {
+    const meshRight = new THREE.Vector3(Math.cos(this._meshYaw), 0, -Math.sin(this._meshYaw));
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    return new THREE.Vector3(this.pos.x, this.pos.y + 1.10, this.pos.z)
+      .addScaledVector(meshRight, 0.225)
+      .addScaledVector(dir, 0.47);
+  }
+
+  _spawnBullet() {
+    // Project crosshair ray 200 units out, then fire from hand toward that point
+    const camFwd = new THREE.Vector3();
+    this.camera.getWorldDirection(camFwd);
+    const aimPoint = this.camera.position.clone().addScaledVector(camFwd, 200);
+    const origin = this._handWorldPos();
+    const dir = aimPoint.sub(origin).normalize();
+
+    const mesh = new THREE.Mesh(this._bulletGeo, this._bulletMat);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    mesh.position.copy(origin);
+    this.scene.add(mesh);
+
+    this._bullets.push({ mesh, vel: dir.clone().multiplyScalar(BULLET_SPEED), life: BULLET_LIFE });
+    this._flashTimer = 0.07;
+  }
+
+  _updateMuzzleFlash(realDt) {
+    this._flashTimer = Math.max(0, this._flashTimer - realDt);
+    const on = this._flashTimer > 0;
+    this._muzzleFlash.visible = on;
+    if (on) {
+      const hand = this._handWorldPos();
+      const t = this._flashTimer / 0.07;
+      this._muzzleFlash.position.copy(hand);
+      this._muzzleFlash.scale.setScalar(0.5 + t * 0.7 + Math.random() * 0.2);
+      this._muzzleLight.position.copy(hand);
+      this._muzzleLight.intensity = t * 8;
+    } else {
+      this._muzzleLight.intensity = 0;
+    }
+  }
+
+  _updateBullets(dt, realDt, boxes, targets) {
+    for (let i = this._bullets.length - 1; i >= 0; i--) {
+      const b = this._bullets[i];
+      b.life -= realDt;
+      b.mesh.position.addScaledVector(b.vel, dt);
+
+      const p = b.mesh.position;
+      const expired = b.life <= 0;
+
+      if (!expired && targets?.testBullet(p)) {
+        this._spawnImpact(p);
+        this.scene.remove(b.mesh);
+        this._bullets.splice(i, 1);
+        continue;
+      }
+
+      let hitSurface = !expired && (
+        p.y < 0 || p.y > 11 ||
+        Math.abs(p.x) > BOUNDS + 1 ||
+        Math.abs(p.z) > BOUNDS + 1
+      );
+      if (!expired && !hitSurface) {
+        for (const box of boxes) {
+          if (box.containsPoint(p)) { hitSurface = true; break; }
+        }
+      }
+
+      if (expired || hitSurface) {
+        if (hitSurface) this._spawnImpact(p);
+        this.scene.remove(b.mesh);
+        this._bullets.splice(i, 1);
+      }
+    }
+  }
+
+  _spawnImpact(pos) {
+    const mesh = new THREE.Mesh(this._impactGeo, this._impactMat);
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this._impacts.push({ mesh, life: 0.10 });
+  }
+
+  _updateImpacts(realDt) {
+    for (let i = this._impacts.length - 1; i >= 0; i--) {
+      const imp = this._impacts[i];
+      imp.life -= realDt;
+      if (imp.life <= 0) {
+        this.scene.remove(imp.mesh);
+        this._impacts.splice(i, 1);
+      } else {
+        const t = imp.life / 0.10;
+        imp.mesh.scale.setScalar(0.4 + t * 1.2 + Math.random() * 0.3);
+      }
+    }
+  }
+
+  _look(input) {
+    const { dx, dy } = input.consumeMouse();
+    const s = BASE_SENS * this.sensitivityMul;
+    this.camYaw   -= dx * s;
+    this.camPitch += dy * s;
+    this.camPitch  = Math.max(-0.5, Math.min(1.3, this.camPitch));
+  }
+
+  _handleJump(input) {
+    const down = input.key('Space');
+    if (down && !this._spacePrev) {
+      if (this.wallRunning) {
+        this.vel.x         = this._wallNormal.x * WJ_SIDE;
+        this.vel.z         = this._wallNormal.z * WJ_SIDE;
+        this.vel.y         = WJ_UP;
+        this.wallRunning   = false;
+        this._wallRunTimer = 0;
+        this.jumps         = 1;
+        this.grounded      = false;
+      } else if (this.jumps < MAX_JUMPS) {
+        this.vel.y    = JUMP_VEL;
+        this.jumps++;
+        this.grounded = false;
+        if (this.jumps === MAX_JUMPS) {   // second jump = flip
+          this._flipping  = true;
+          this._flipAngle = 0;
+        }
+      }
+    }
+    this._spacePrev = down;
+  }
+
+  _setHorizVel(input) {
+    const fwd   = new THREE.Vector3(-Math.sin(this.camYaw), 0, -Math.cos(this.camYaw));
+    const right = new THREE.Vector3( Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
+    const dir   = new THREE.Vector3();
+
+    if (input.key('KeyW')) dir.addScaledVector(fwd,    1);
+    if (input.key('KeyS')) dir.addScaledVector(fwd,   -1);
+    if (input.key('KeyA')) dir.addScaledVector(right, -1);
+    if (input.key('KeyD')) dir.addScaledVector(right,  1);
+
+    this._moving = dir.lengthSq() > 0;
+    if (this._moving) dir.normalize();
+    this.vel.x = dir.x * SPEED;
+    this.vel.z = dir.z * SPEED;
+
+    // smoothly rotate mesh to face movement direction
+    if (this._moving) {
+      const target = Math.atan2(dir.x, dir.z);
+      let diff = target - this._meshYaw;
+      while (diff >  Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this._meshYaw += diff * 0.18;
+    }
+  }
+
+  _resolveH(boxes) {
+    const feet = this.pos.y;
+    const top  = this.pos.y + CHAR_H;
+    for (const b of boxes) {
+      if (top <= b.min.y || feet >= b.max.y) continue;
+      const ox = this._ox(b), oz = this._oz(b);
+      if (ox <= 0 || oz <= 0) continue;
+      if (ox < oz) {
+        const nx = this.pos.x < (b.min.x + b.max.x) / 2 ? -1 : 1;
+        this.pos.x += nx * ox;
+        this._wallNormal = new THREE.Vector3(nx, 0, 0);
+      } else {
+        const nz = this.pos.z < (b.min.z + b.max.z) / 2 ? -1 : 1;
+        this.pos.z += nz * oz;
+        this._wallNormal = new THREE.Vector3(0, 0, nz);
+      }
+    }
+  }
+
+  _clampBounds() {
+    if (this.pos.x < -BOUNDS) { this.pos.x = -BOUNDS; this._wallNormal = new THREE.Vector3( 1, 0,  0); }
+    if (this.pos.x >  BOUNDS) { this.pos.x =  BOUNDS; this._wallNormal = new THREE.Vector3(-1, 0,  0); }
+    if (this.pos.z < -BOUNDS) { this.pos.z = -BOUNDS; this._wallNormal = new THREE.Vector3( 0, 0,  1); }
+    if (this.pos.z >  BOUNDS) { this.pos.z =  BOUNDS; this._wallNormal = new THREE.Vector3( 0, 0, -1); }
+  }
+
+  _updateWallRun(dt) {
+    if (this.grounded) {
+      this.wallRunning   = false;
+      this._wallRunTimer = 0;
+      return;
+    }
+    if (this._wallNormal && !this.wallRunning) {
+      this.wallRunning   = true;
+      this._wallRunTimer = 0;
+      this.jumps         = Math.min(this.jumps, 1);
+      // inject upward velocity if near-zero so player arcs up, then falls
+      if (this.vel.y < WR_UPBOOST) this.vel.y = WR_UPBOOST;
+    }
+    if (this.wallRunning) {
+      if (!this._wallNormal) {
+        // left the wall
+        this.wallRunning = false;
+        return;
+      }
+      this._wallRunTimer += dt;
+      if (this._wallRunTimer >= WR_DURATION) {
+        this.wallRunning = false;
+      }
+    }
+  }
+
+  _resolveV(boxes) {
+    let onGround = false;
+    for (const b of boxes) {
+      if (this._ox(b) <= 0 || this._oz(b) <= 0) continue;
+      const prevFeet = this._prevY;
+      const newFeet  = this.pos.y;
+      const prevTop  = this._prevY + CHAR_H;
+
+      if (prevFeet >= b.max.y - 0.05 && newFeet < b.max.y && this.vel.y <= 0) {
+        this.pos.y = b.max.y;
+        this.vel.y = 0;
+        onGround   = true;
+      } else if (prevTop <= b.min.y + 0.05 && this.pos.y + CHAR_H > b.min.y && this.vel.y > 0) {
+        this.pos.y = b.min.y - CHAR_H;
+        this.vel.y = 0;
+      }
+    }
+    if (this.pos.y < 0) { this.pos.y = 0; this.vel.y = 0; onGround = true; }
+    if (onGround) this.jumps = 0;
+    this.grounded = onGround;
+  }
+
+  _ox(b) { return Math.min(this.pos.x + PR, b.max.x) - Math.max(this.pos.x - PR, b.min.x); }
+  _oz(b) { return Math.min(this.pos.z + PR, b.max.z) - Math.max(this.pos.z - PR, b.min.z); }
+
+  _diveQ() {
+    const diveYaw = Math.atan2(this._diveDir.x, this._diveDir.z);
+    const yawQ  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), diveYaw);
+    const tiltQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI * 0.42);
+    return yawQ.multiply(tiltQ);
+  }
+
+  _rightArmTargetQ() {
+    if (this._shooting) {
+      const aimWorld = new THREE.Vector3();
+      this.camera.getWorldDirection(aimWorld);
+      // Use full mesh quaternion so arm tracks correctly even when dive-tilted
+      const invMeshQ = this._diving
+        ? this._diveQ().invert()
+        : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this._meshYaw);
+      const localAim = aimWorld.clone().applyQuaternion(invMeshQ);
+      return new THREE.Quaternion()
+        .setFromUnitVectors(new THREE.Vector3(0, -1, 0), localAim);
+    }
+    if (this._flipping) {
+      return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.8);
+    }
+    if (this.wallRunning) {
+      return new THREE.Quaternion()
+        .setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.sin(this._walkCycle) * 0.85 * 0.6);
+    }
+    if (this._moving && this.grounded) {
+      return new THREE.Quaternion()
+        .setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.sin(this._walkCycle) * 0.85 * 0.55);
+    }
+    return new THREE.Quaternion(); // identity — arm hangs at rest
+  }
+
+  _animateMesh(dt) {
+    this.mesh.position.copy(this.pos);
+    this.mesh.rotation.y = this._meshYaw;
+
+    // Right arm always driven by quaternion slerp (handles shooting, walk, idle)
+    this._rArmPivot.quaternion.slerp(this._rightArmTargetQ(), 0.30);
+
+    // ── shootdodge dive ──────────────────────────────────────────────────────
+    if (this._diveTilt > 0) {
+      // Slerp from upright-facing-diveDir → fully horizontal over _diveTilt (0→1)
+      const diveYaw = Math.atan2(this._diveDir.x, this._diveDir.z);
+      const uprightQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), diveYaw);
+      this.mesh.quaternion.copy(uprightQ).slerp(this._diveQ(), this._diveTilt);
+      // Pivot around chest so the tilt looks like the body is rotating, not the feet
+      const pivot   = new THREE.Vector3(0, 0.95, 0);
+      const rotated = pivot.clone().applyQuaternion(this.mesh.quaternion);
+      this.mesh.position.set(
+        this.pos.x + pivot.x - rotated.x,
+        this.pos.y + pivot.y - rotated.y,
+        this.pos.z + pivot.z - rotated.z
+      );
+      // Scale limb poses with tilt progress
+      this._lArmPivot.rotation.x = -1.1  * this._diveTilt;
+      this._lLegPivot.rotation.x = -0.35 * this._diveTilt;
+      this._rLegPivot.rotation.x =  0.25 * this._diveTilt;
+      this.mesh.scale.set(1, 1, 1);
+      return;
+    }
+
+    // ── flip (double jump) ───────────────────────────────────────────────────
+    if (this._flipping) {
+      this._flipAngle += FLIP_SPEED * dt;
+      const yawQ  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this._meshYaw);
+      const flipQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), this._flipAngle);
+      this.mesh.quaternion.copy(yawQ).multiply(flipQ);
+      const pivot        = new THREE.Vector3(0, 0.95, 0);
+      const rotatedPivot = pivot.clone().applyQuaternion(this.mesh.quaternion);
+      this.mesh.position.set(
+        this.pos.x + pivot.x - rotatedPivot.x,
+        this.pos.y + pivot.y - rotatedPivot.y,
+        this.pos.z + pivot.z - rotatedPivot.z
+      );
+      if (this._flipAngle >= Math.PI * 2) {
+        this._flipping  = false;
+        this._flipAngle = 0;
+        this.mesh.rotation.set(0, this._meshYaw, 0);
+      }
+      this._lLegPivot.rotation.x = 0.6;
+      this._rLegPivot.rotation.x = 0.6;
+      this._lArmPivot.rotation.x = -0.8;
+      this.mesh.scale.set(1, 1, 1);
+      return;
+    }
+
+    // ── wall run ─────────────────────────────────────────────────────────────
+    if (this.wallRunning && this._wallNormal) {
+      this._walkCycle += dt * 11;
+      const sw = Math.sin(this._walkCycle) * 0.85;
+      this._lLegPivot.rotation.x =  sw;
+      this._rLegPivot.rotation.x = -sw;
+      this._lArmPivot.rotation.x = -sw * 0.6;
+      const camRight = new THREE.Vector3(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
+      this.mesh.rotation.z += (this._wallNormal.dot(camRight) * 0.32 - this.mesh.rotation.z) * 0.2;
+      this.mesh.scale.set(1, 1, 1);
+      this.mesh.rotation.x = 0;
+      return;
+    }
+    this.mesh.rotation.z *= 0.75;
+
+    // ── ground run ───────────────────────────────────────────────────────────
+    if (this._moving && this.grounded) {
+      this._walkCycle += dt * 10;
+      const sw = Math.sin(this._walkCycle) * 0.85;
+      this._lLegPivot.rotation.x =  sw;
+      this._rLegPivot.rotation.x = -sw;
+      this._lArmPivot.rotation.x = -sw * 0.55;
+    } else if (this.grounded) {
+      this._lLegPivot.rotation.x *= 0.7;
+      this._rLegPivot.rotation.x *= 0.7;
+      this._lArmPivot.rotation.x *= 0.7;
+    }
+
+    // ── squash & stretch (airborne only) ─────────────────────────────────────
+    if (!this.grounded) {
+      const stretch = 1 + this.vel.y * 0.014;
+      this.mesh.scale.y = Math.max(0.72, Math.min(1.35, stretch));
+      this.mesh.scale.x = 1 / Math.sqrt(Math.abs(this.mesh.scale.y));
+      this.mesh.rotation.x = 0;
+    } else {
+      this.mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.3);
+    }
+  }
+
+  _updateCamera() {
+    // back offset + right shoulder offset
+    const cx = this.pos.x + Math.sin(this.camYaw) * Math.cos(this.camPitch) * this.camDist + Math.cos(this.camYaw) * CAM_SIDE;
+    const cy = this.pos.y + CAM_PIVOT_H + Math.sin(this.camPitch) * this.camDist;
+    const cz = this.pos.z + Math.cos(this.camYaw) * Math.cos(this.camPitch) * this.camDist - Math.sin(this.camYaw) * CAM_SIDE;
+    this.camera.position.set(cx, cy, cz);
+
+    // camera roll toward wall during wall run
+    let targetRoll = 0;
+    if (this.wallRunning && this._wallNormal) {
+      const camRight = new THREE.Vector3(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
+      targetRoll = this._wallNormal.dot(camRight) * CAM_ROLL_MAX;
+    }
+    this._camRoll += (targetRoll - this._camRoll) * 0.12;
+
+    const lookTarget = new THREE.Vector3(this.pos.x, this.pos.y + CAM_PIVOT_H, this.pos.z);
+    this.camera.lookAt(lookTarget);
+
+    // apply roll via camera up vector
+    const forward = lookTarget.clone().sub(this.camera.position).normalize();
+    const worldUp  = new THREE.Vector3(0, 1, 0);
+    const right    = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+    const tiltedUp = new THREE.Vector3()
+      .addScaledVector(worldUp, Math.cos(this._camRoll))
+      .addScaledVector(right,   Math.sin(this._camRoll));
+    this.camera.up.copy(tiltedUp);
+    this.camera.lookAt(lookTarget);
+  }
+}
