@@ -22,7 +22,7 @@ const BULLET_SPEED     = 500;
 const BULLET_LIFE      = 2.5;
 const FIRE_RATE        = 0.20;           // seconds between shots
 const MAX_BULLETS      = 60;
-const BT_DURATION      = 6.0;
+const BT_DURATION      = 4.0;
 //const BT_SCALE         = 0.1;
 const BT_SCALE_Q       = 0.03; // much stronger slow for Q bullet-time
 const BT_SCALE_DIVE    = 0.12; // gentler slow for dive
@@ -119,6 +119,11 @@ export class Player {
     this._wallTrails = [];
     this._wallTrailTimer = 0;
     this._wallTrailMat = new THREE.MeshBasicMaterial({ color: 0x66aaff, transparent: true, opacity: 0.55, depthWrite: false });
+
+    // Bullet casings (tiny brass shells) — use a scaled-down bullet shape
+    this._casings = [];
+    this._casingGeo = this._bulletGeo; // reuse bullet shape (scale down when spawning)
+    this._casingMat = new THREE.MeshBasicMaterial({ color: 0xCCA000, transparent: true, opacity: 1.0 });
 
     this.mesh = this._buildMesh();
     scene.add(this.mesh);
@@ -402,6 +407,29 @@ export class Player {
     // don't special-case bullets based on the shooter being inside a bubble;
     // bullets are always slowed by bubble.scale when they are inside one.
     this._bullets.push({ mesh, vel: dir.multiplyScalar(speed), life: BULLET_LIFE });
+
+    // spawn a tiny brass casing that ejects to the right/up/back of the camera
+    // make casing a tiny version of the bullet geometry
+    const casing = new THREE.Mesh(this._casingGeo, this._casingMat);
+    casing.scale.setScalar(0.18);
+     // compute right vector from camera forward
+     const up = new THREE.Vector3(0,1,0);
+     const right = camFwd.clone().cross(up).normalize();
+     // position slightly to the right of the hand and a bit up
+     casing.position.copy(origin).addScaledVector(right, 0.12).addScaledVector(up, 0.08);
+     // random rotation
+    casing.rotation.set(Math.random()*0.6, Math.random()*1.2, Math.random()*0.6);
+    this.scene.add(casing);
+    // ejection velocity (small)
+     const eject = right.clone().multiplyScalar(1.0).add(up.clone().multiplyScalar(0.8)).add(camFwd.clone().multiplyScalar(-0.6));
+     eject.add(new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.25, (Math.random()-0.5)*0.3));
+    this._casings.push({
+      mesh: casing,
+      vel: eject, // metres/second (will be scaled by time/bubble)
+      angVel: new THREE.Vector3(Math.random()*6-3, Math.random()*6-3, Math.random()*6-3),
+      life: 1.4,
+      settled: false
+    });
   }
 
   _updateMuzzleFlash(realDt) {
@@ -448,14 +476,34 @@ export class Player {
 
       for (let s = 0; s < steps; s++) {
         const bScale = timeBubbles ? timeBubbles.bulletScaleAt(b.mesh.position) : 1.0;
-        b.mesh.position.addScaledVector(b.vel, subDt * bScale);
+
+        // compute displacement for this sub-step so trail segment can be a line between prev->cur
+        const disp = b.vel.clone().multiplyScalar(subDt * bScale);
+        const nextPos = b.mesh.position.clone().add(disp);
+        // advance bullet
+        b.mesh.position.copy(nextPos);
         const p = b.mesh.position;
 
-        // spawn a tiny trail blob at bullet position (fades quickly)
-        const tmesh = new THREE.Mesh(this._trailGeo, this._trailMat);
-        tmesh.position.copy(p);
-        this.scene.add(tmesh);
-        this._bulletTrails.push({ mesh: tmesh, life: 0.12 });
+        // spawn a thin rectangular trail segment (line-like) instead of a sphere blob.
+        const baseTrailLife = 0.10;
+        // make trails a bit smaller overall; still enlarge in slow-mo but less aggressive
+        const trailLife = baseTrailLife / Math.max(0.05, this.timeScale);
+        const sizeMul = 0.6 / Math.max(0.05, this.timeScale); // larger in slow-mo
+        const length = Math.max(0.02, disp.length()); // ensure visible even for tiny steps
+        const width  = 0.008 * sizeMul;
+        const geo = new THREE.BoxGeometry(width, length, width);
+        const mat = this._trailMat.clone();
+        mat.opacity = Math.min(1.0, 0.55 * sizeMul);
+        const seg = new THREE.Mesh(geo, mat);
+        // place segment at midpoint between prev and current
+        seg.position.copy(p).sub(disp.clone().multiplyScalar(0.5));
+        // orient the segment to align its Y axis with the displacement
+        if (disp.lengthSq() > 1e-8) {
+          seg.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), disp.clone().normalize());
+        }
+        seg.renderOrder = 998;
+        this.scene.add(seg);
+        this._bulletTrails.push({ mesh: seg, life: trailLife, baseLife: trailLife });
 
         if (targets?.testBullet(p)) {
           this._spawnImpact(p);
@@ -503,28 +551,74 @@ export class Player {
 
   // new helper: update bullet/wall trails (fade + remove)
   _updateTrails(realDt) {
-    // bullet trails
+    // scale decay by player's timeScale so trails remain visible during bullet-time
+    const decayDt = realDt * Math.max(0.0001, this.timeScale);
+
+    // bullet trails (thin boxes acting as line segments)
     for (let i = this._bulletTrails.length - 1; i >= 0; i--) {
       const t = this._bulletTrails[i];
-      t.life -= realDt;
+      t.life -= decayDt;
       if (t.life <= 0) {
         this.scene.remove(t.mesh);
+        // dispose geometry/material to avoid memory leak
+        if (t.mesh.geometry) t.mesh.geometry.dispose();
+        if (t.mesh.material) t.mesh.material.dispose();
         this._bulletTrails.splice(i, 1);
       } else {
-        t.mesh.material.opacity = Math.max(0, t.life / 0.12) * 0.6;
-        t.mesh.scale.setScalar(0.6 + (1 - t.life / 0.12) * 0.6);
+        const ratio = t.life / t.baseLife;
+        // fade out and slightly shrink length as it ages
+        t.mesh.material.opacity = Math.max(0.03, ratio * 0.9);
+        // scale Y to shorten the segment over life (keeps it line-like)
+        t.mesh.scale.y = 0.6 + 0.4 * ratio;
       }
     }
 
     // wall trails
     for (let i = this._wallTrails.length - 1; i >= 0; i--) {
       const w = this._wallTrails[i];
-      w.life -= realDt;
+      w.life -= decayDt;
       if (w.life <= 0) {
         this.scene.remove(w.mesh);
         this._wallTrails.splice(i, 1);
       } else {
         w.mesh.material.opacity = (w.life / 0.8) * 0.55;
+      }
+    }
+
+    // casings: move, spin and fade (affected by bullet-time)
+    for (let i = this._casings.length - 1; i >= 0; i--) {
+      const c = this._casings[i];
+      // apply bubble/time scaling so casings slow in bullet-time as well
+      const bubbleScale = this._timeBubbles ? this._timeBubbles.timeScaleAt(c.mesh.position) : 1.0;
+      const moveDt = decayDt * bubbleScale;
+
+      // gravity on casings so they arc realistically
+      if (!c.settled) {
+        c.vel.y += GRAVITY * moveDt;
+      }
+      c.mesh.position.addScaledVector(c.vel, moveDt);
+      c.mesh.rotation.x += c.angVel.x * moveDt;
+      c.mesh.rotation.y += c.angVel.y * moveDt;
+      c.mesh.rotation.z += c.angVel.z * moveDt;
+      // ground collision: settle casings on floor
+      if (!c.settled && c.mesh.position.y <= 0.03) {
+        c.mesh.position.y = 0.03;
+        c.vel.set(0, 0, 0);
+        c.angVel.multiplyScalar(0.25);
+        c.settled = true;
+        // shorten remaining life a bit so they don't linger forever
+        c.life = Math.min(c.life, 0.9);
+      }
+      c.life -= decayDt;
+      if (c.life <= 0) {
+        this.scene.remove(c.mesh);
+        if (c.mesh.geometry) c.mesh.geometry.dispose();
+        if (c.mesh.material) c.mesh.material.dispose();
+        this._casings.splice(i, 1);
+      } else {
+        // slowly fade casings
+        c.mesh.material.opacity = Math.max(0.18, c.life / 1.4);
+        c.mesh.material.transparent = true;
       }
     }
   }
