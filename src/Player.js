@@ -89,6 +89,8 @@ export class Player {
     this._qPrev          = false;
     this._rmbPrev        = false;
     this._btSlow         = false;
+    // which type of Q/RMB bullet-time is active: 'none' | 'q' | 'dive'
+    this._btMode         = 'none';
     this._fPrev          = false;
     this._fCooldown      = 0;
 
@@ -297,7 +299,8 @@ export class Player {
     // Bullet-time / dive timeScale handling
     // If Q-triggered bullet-time is active, snap immediately to the Q scale (no ramp).
     if (this.bulletTimeLeft > 0) {
-      this.timeScale = BT_SCALE_Q;
+      // choose scale depending on which input started bullet-time
+      this.timeScale = (this._btMode === 'q') ? BT_SCALE_Q : BT_SCALE_DIVE;
     } else if (this._diveSlow) {
       // keep smooth ramping for dive-slow
       const target = BT_SCALE_DIVE;
