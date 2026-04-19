@@ -5,7 +5,7 @@ const GRENADE_GRAVITY = -22;
 const THROW_SPEED     = 11;
 
 export const BUBBLE_LIFE  = 10.0;
-export const BUBBLE_SCALE = 0.04;
+export const BUBBLE_SCALE = 0.01;
 
 export class TimeBubbles {
   constructor(scene) {

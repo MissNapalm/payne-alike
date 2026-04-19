@@ -210,6 +210,24 @@ export class World {
     box(scene, this.boxes,  0, 4.25, -17, 5, t, 5, platMat);        // top y=4.45
     box(scene, this.boxes, -1, 5.55, -17, 4, t, 4, platMat2);       // top y=5.75
 
+    // ── Wall-run slabs ───────────────────────────────────────────────────────
+    // Tall thin panels — run along their long face to trigger wall-run
+    const wrMat = new THREE.MeshLambertMaterial({ color: 0x4a7090, map: metal });
+
+    // East corridor — three X-thin panels in a row, run along +X face
+    box(scene, this.boxes,  10, 3,   4, 0.5, 6, 7, wrMat);
+    box(scene, this.boxes,  10, 3,  -5, 0.5, 6, 7, wrMat);
+    box(scene, this.boxes,  10, 3, -14, 0.5, 6, 7, wrMat);
+
+    // West corridor — mirror
+    box(scene, this.boxes, -10, 3,   4, 0.5, 6, 7, wrMat);
+    box(scene, this.boxes, -10, 3,  -5, 0.5, 6, 7, wrMat);
+    box(scene, this.boxes, -10, 3, -14, 0.5, 6, 7, wrMat);
+
+    // Back run — Z-thin panels, run along +Z face
+    box(scene, this.boxes,  -6, 3, -18, 7, 6, 0.5, wrMat);
+    box(scene, this.boxes,   6, 3, -18, 7, 6, 0.5, wrMat);
+
     // ── Lighting ─────────────────────────────────────────────────────────────
     scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 

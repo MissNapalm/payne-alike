@@ -71,6 +71,7 @@ export class Player {
     this._impactGeo  = new THREE.SphereGeometry(0.13, 5, 4);
     this._impactMat  = new THREE.MeshBasicMaterial({ color: 0xffee55 });
 
+    this._weaponMode     = 1;   // 1=single, 2=dual, 3=fast
     this._bullets        = [];
     this._fireTimer      = 0;
     this._shooting       = false;
@@ -85,14 +86,18 @@ export class Player {
     this._fCooldown      = 0;
 
     this._flashTimer = 0;
-    this._muzzleFlash = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 6, 4),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
-    );
-    this._muzzleFlash.visible = false;
+    const flashGeo = new THREE.SphereGeometry(0.09, 6, 4);
+    const flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    this._muzzleFlash  = new THREE.Mesh(flashGeo, flashMat);
+    this._muzzleFlash2 = new THREE.Mesh(flashGeo, flashMat);
+    this._muzzleFlash.visible  = false;
+    this._muzzleFlash2.visible = false;
     scene.add(this._muzzleFlash);
-    this._muzzleLight = new THREE.PointLight(0xffaa33, 0, 6);
+    scene.add(this._muzzleFlash2);
+    this._muzzleLight  = new THREE.PointLight(0xffaa33, 0, 6);
+    this._muzzleLight2 = new THREE.PointLight(0xffaa33, 0, 6);
     scene.add(this._muzzleLight);
+    scene.add(this._muzzleLight2);
 
     this.mesh = this._buildMesh();
     scene.add(this.mesh);
@@ -238,6 +243,9 @@ export class Player {
     this._qPrev   = qDown;
     this._rmbPrev = rmbDown;
     if (this.bulletTimeLeft > 0) this.bulletTimeLeft = Math.max(0, this.bulletTimeLeft - realDt);
+    if (input.key('Digit1')) this._weaponMode = 1;
+    if (input.key('Digit2')) this._weaponMode = 2;
+    if (input.key('Digit3')) this._weaponMode = 3;
 
     // F key → throw grenade; bubble opens where it lands after 2 bounces
     if (this._fCooldown > 0) this._fCooldown -= realDt;
@@ -328,12 +336,18 @@ export class Player {
   }
 
   _spawnBullet() {
-    this._spawnOneBullet(-1);
-    this._spawnOneBullet( 1);
+    if (this._weaponMode === 1) {
+      this._spawnOneBullet(1, BULLET_SPEED);
+    } else if (this._weaponMode === 2) {
+      this._spawnOneBullet(-1, BULLET_SPEED);
+      this._spawnOneBullet( 1, BULLET_SPEED);
+    } else {
+      this._spawnOneBullet(1, BULLET_SPEED * 3);
+    }
     this._flashTimer = 0.07;
   }
 
-  _spawnOneBullet(side) {
+  _spawnOneBullet(side, speed) {
     const camFwd   = new THREE.Vector3();
     this.camera.getWorldDirection(camFwd);
     const aimPoint = this.camera.position.clone().addScaledVector(camFwd, 200);
@@ -346,22 +360,38 @@ export class Player {
     this.scene.add(mesh);
 
     const insideBubble = this._timeBubbles && this._timeBubbles.timeScaleAt(this.pos) < 0.99;
-    this._bullets.push({ mesh, vel: dir.multiplyScalar(BULLET_SPEED), life: BULLET_LIFE, fastBullet: insideBubble });
+    this._bullets.push({ mesh, vel: dir.multiplyScalar(speed), life: BULLET_LIFE, fastBullet: insideBubble });
   }
 
   _updateMuzzleFlash(realDt) {
     this._flashTimer = Math.max(0, this._flashTimer - realDt);
-    const on = this._flashTimer > 0;
+    const on   = this._flashTimer > 0;
+    const t    = this._flashTimer / 0.07;
+    const size = 1.3 + t * 1.5 + Math.random() * 0.4;
+    const dual = this._weaponMode === 2;
+
+    // Right-hand flash (always)
     this._muzzleFlash.visible = on;
     if (on) {
-      const hand = this._handWorldPos();
-      const t = this._flashTimer / 0.07;
+      const hand = this._handWorldPos(1);
       this._muzzleFlash.position.copy(hand);
-      this._muzzleFlash.scale.setScalar(1.3 + t * 1.5 + Math.random() * 0.4);
+      this._muzzleFlash.scale.setScalar(size);
       this._muzzleLight.position.copy(hand);
       this._muzzleLight.intensity = t * 8;
     } else {
       this._muzzleLight.intensity = 0;
+    }
+
+    // Left-hand flash (dual wield only)
+    this._muzzleFlash2.visible = on && dual;
+    if (on && dual) {
+      const hand2 = this._handWorldPos(-1);
+      this._muzzleFlash2.position.copy(hand2);
+      this._muzzleFlash2.scale.setScalar(size);
+      this._muzzleLight2.position.copy(hand2);
+      this._muzzleLight2.intensity = t * 8;
+    } else {
+      this._muzzleLight2.intensity = 0;
     }
   }
 
@@ -421,11 +451,12 @@ export class Player {
   }
 
   _look(input) {
-    const { dx, dy } = input.consumeMouse();
+    const { dx, dy, scroll } = input.consumeMouse();
     const s = BASE_SENS * this.sensitivityMul;
     this.camYaw   -= dx * s;
     this.camPitch += dy * s;
     this.camPitch  = Math.max(-0.5, Math.min(1.3, this.camPitch));
+    if (scroll) this.camDist = Math.max(1.5, Math.min(10, this.camDist + scroll * 0.005));
   }
 
   _handleJump(input) {

@@ -3,6 +3,7 @@ export class Input {
     this.keys = {};
     this.dx = 0;
     this.dy = 0;
+    this.scroll = 0;
     this.locked = false;
     this.mouseButtons = 0;
 
@@ -14,6 +15,7 @@ export class Input {
       this.dx += e.movementX;
       this.dy += e.movementY;
     });
+    window.addEventListener('wheel', e => { this.scroll += e.deltaY; }, { passive: true });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement != null;
     });
@@ -23,8 +25,8 @@ export class Input {
   mouseBtn(btn)  { return !!(this.mouseButtons & (1 << btn)); }
 
   consumeMouse() {
-    const dx = this.dx, dy = this.dy;
-    this.dx = 0; this.dy = 0;
-    return { dx, dy };
+    const dx = this.dx, dy = this.dy, scroll = this.scroll;
+    this.dx = 0; this.dy = 0; this.scroll = 0;
+    return { dx, dy, scroll };
   }
 }
