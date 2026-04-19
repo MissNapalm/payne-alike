@@ -18,7 +18,7 @@ const WJ_SIDE          = 6.5;
 const WJ_UP            = 8.5;
 const CAM_ROLL_MAX     = 0.18;
 const FLIP_SPEED       = Math.PI * 3.5; // tuck arc over ~0.57 s
-const BULLET_SPEED     = 55;
+const BULLET_SPEED     = 500;
 const BULLET_LIFE      = 2.5;
 const FIRE_RATE        = 0.20;           // seconds between shots
 const MAX_BULLETS      = 60;
@@ -58,11 +58,12 @@ export class Player {
     this._flipping     = false;
     this._flipAngle    = 0;
 
-    this._diving       = false;
-    this._sliding      = false;
-    this._diveSlow     = false;
-    this._diveCooldown = 0;
-    this._diveTilt     = 0;
+    this._diving         = false;
+    this._sliding        = false;
+    this._diveSlow       = false;
+    this._diveSlowTimer  = 0;
+    this._diveCooldown   = 0;
+    this._diveTilt       = 0;
     this._meshDiveY    = 0;
     this._diveDir       = new THREE.Vector3();
     this._shiftPrev     = false;
@@ -84,6 +85,12 @@ export class Player {
     this._btSlow         = false;
     this._fPrev          = false;
     this._fCooldown      = 0;
+
+    // tunable multipliers (driven by ESC-menu sliders)
+    this._moveSpeedMul   = 1.0;
+    this._jumpVelMul     = 1.0;
+    this._bulletSpeedMul = 1.0;
+    this._diveUpMul      = 1.0;
 
     this._flashTimer = 0;
     const flashGeo = new THREE.SphereGeometry(0.09, 6, 4);
@@ -114,30 +121,30 @@ export class Player {
 
   _buildMesh() {
     const root = new THREE.Group();
-    const mat  = new THREE.MeshBasicMaterial({ color: 0x44ffcc, wireframe: true });
+    const mat  = new THREE.MeshLambertMaterial({ color: 0xaa44ff, flatShading: true });
 
     // HEAD
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), mat);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 5, 4), mat);
     head.position.y = 1.27;
     root.add(head);
 
     // NECK
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.053, 0.11, 6), mat);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.053, 0.11, 5), mat);
     neck.position.y = 1.17;
     root.add(neck);
 
     // CHEST — wider at top (shoulders), tapers to waist
-    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.118, 0.27, 8), mat);
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.118, 0.27, 6), mat);
     chest.position.y = 0.97;
     root.add(chest);
 
     // WAIST — narrowest point
-    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.110, 0.155, 0.17, 8), mat);
+    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.110, 0.155, 0.17, 6), mat);
     waist.position.y = 0.748;
     root.add(waist);
 
-    // HIPS — wider than waist, feminine silhouette
-    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 8), mat);
+    // HIPS
+    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 6), mat);
     hips.position.y = 0.595;
     root.add(hips);
 
@@ -146,19 +153,19 @@ export class Player {
       const pivot = new THREE.Group();
       pivot.position.set(xs * 0.225, 1.10, 0);
 
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.25, 6), mat);
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.25, 5), mat);
       upper.position.y = -0.125;
       pivot.add(upper);
 
-      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.040, 6, 4), mat);
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.040, 4, 3), mat);
       elbow.position.y = -0.25;
       pivot.add(elbow);
 
-      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.029, 0.22, 6), mat);
+      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.029, 0.22, 5), mat);
       fore.position.y = -0.36;
       pivot.add(fore);
 
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.036, 6, 4), mat);
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.07), mat);
       hand.position.y = -0.47;
       pivot.add(hand);
 
@@ -171,19 +178,19 @@ export class Player {
       const pivot = new THREE.Group();
       pivot.position.set(xs * 0.10, 0.522, 0);
 
-      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.070, 0.055, 0.26, 6), mat);
+      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.070, 0.055, 0.26, 5), mat);
       thigh.position.y = -0.13;
       pivot.add(thigh);
 
-      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 6, 4), mat);
+      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 4, 3), mat);
       knee.position.y = -0.26;
       pivot.add(knee);
 
-      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.034, 0.24, 6), mat);
+      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.034, 0.24, 5), mat);
       shin.position.y = -0.38;
       pivot.add(shin);
 
-      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 6, 4), mat);
+      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 4, 3), mat);
       ankle.position.y = -0.50;
       pivot.add(ankle);
 
@@ -212,10 +219,11 @@ export class Player {
       if (diveDir.lengthSq() < 0.01) diveDir.copy(fwd);
       diveDir.normalize();
       this._diveDir.copy(diveDir);
-      this.vel.set(diveDir.x * DIVE_SPEED, DIVE_UP, diveDir.z * DIVE_SPEED);
-      this._diving       = true;
-      this._diveSlow     = true;
-      this._diveCooldown = DIVE_COOLDOWN;
+      this.vel.set(diveDir.x * DIVE_SPEED, DIVE_UP * this._diveUpMul, diveDir.z * DIVE_SPEED);
+      this._diving         = true;
+      this._diveSlow       = true;
+      this._diveSlowTimer  = BT_DURATION;
+      this._diveCooldown   = DIVE_COOLDOWN;
       this._diveTilt     = 0;
       this.grounded      = false;
       this.jumps         = MAX_JUMPS;
@@ -225,6 +233,11 @@ export class Player {
 
     // Releasing shift cancels bullet time (pose stays until you land/stand)
     if ((this._diving || this._sliding) && !shiftDown) this._diveSlow = false;
+    // Hard 6-second dive bullet-time cap
+    if (this._diveSlow) {
+      this._diveSlowTimer -= realDt;
+      if (this._diveSlowTimer <= 0) this._diveSlow = false;
+    }
     // Landing from dive → enter slide
     if (this._diving && this.grounded) { this._diving = false; this._sliding = true; }
     // Releasing shift while sliding → stand up
@@ -239,7 +252,7 @@ export class Player {
     const qDown = input.key('KeyQ');
     const rmbDown = input.mouseBtn(1);
     if (qDown && !this._qPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = false; }
-    if (rmbDown && !this._rmbPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = true; }
+    if (rmbDown && !this._rmbPrev && this.bulletTimeLeft <= 0) { this.bulletTimeLeft = BT_DURATION; this._btSlow = false; }
     this._qPrev   = qDown;
     this._rmbPrev = rmbDown;
     if (this.bulletTimeLeft > 0) this.bulletTimeLeft = Math.max(0, this.bulletTimeLeft - realDt);
@@ -336,13 +349,14 @@ export class Player {
   }
 
   _spawnBullet() {
+    const bs = BULLET_SPEED * this._bulletSpeedMul;
     if (this._weaponMode === 1) {
-      this._spawnOneBullet(1, BULLET_SPEED);
+      this._spawnOneBullet(1, bs);
     } else if (this._weaponMode === 2) {
-      this._spawnOneBullet(-1, BULLET_SPEED);
-      this._spawnOneBullet( 1, BULLET_SPEED);
+      this._spawnOneBullet(-1, bs);
+      this._spawnOneBullet( 1, bs);
     } else {
-      this._spawnOneBullet(1, BULLET_SPEED * 3);
+      this._spawnOneBullet(1, bs * 3);
     }
     this._flashTimer = 0.07;
   }
@@ -398,33 +412,37 @@ export class Player {
   _updateBullets(dt, _realDt, boxes, targets, timeBubbles) {
     for (let i = this._bullets.length - 1; i >= 0; i--) {
       const b = this._bullets[i];
-      const bScale = (b.fastBullet || !timeBubbles) ? 1.0 : timeBubbles.timeScaleAt(b.mesh.position);
-      b.mesh.position.addScaledVector(b.vel, dt * bScale);
 
-      const p = b.mesh.position;
+      // Steps based on max possible travel (no bubble scaling) so collision stays accurate.
+      // bScale is recomputed each sub-step so bullets decelerate the instant they enter a bubble.
+      const maxDist = b.vel.length() * dt;
+      const steps   = Math.max(1, Math.ceil(maxDist / 0.3));
+      const subDt   = dt / steps;
 
-      if (targets?.testBullet(p)) {
-        this._spawnImpact(p);
-        this.scene.remove(b.mesh);
-        this._bullets.splice(i, 1);
-        continue;
-      }
+      for (let s = 0; s < steps; s++) {
+        const bScale = (b.fastBullet || !timeBubbles) ? 1.0 : timeBubbles.bulletScaleAt(b.mesh.position);
+        b.mesh.position.addScaledVector(b.vel, subDt * bScale);
+        const p = b.mesh.position;
 
-      let hitSurface = (
-        p.y < 0 || p.y > 11 ||
-        Math.abs(p.x) > BOUNDS + 1 ||
-        Math.abs(p.z) > BOUNDS + 1
-      );
-      if (!hitSurface) {
-        for (const box of boxes) {
-          if (box.containsPoint(p)) { hitSurface = true; break; }
+        if (targets?.testBullet(p)) {
+          this._spawnImpact(p);
+          this.scene.remove(b.mesh);
+          this._bullets.splice(i, 1);
+          break;
         }
-      }
 
-      if (hitSurface) {
-        this._spawnImpact(p);
-        this.scene.remove(b.mesh);
-        this._bullets.splice(i, 1);
+        const hitSurface = (
+          p.y < 0 || p.y > 11 ||
+          Math.abs(p.x) > BOUNDS + 1 ||
+          Math.abs(p.z) > BOUNDS + 1 ||
+          boxes.some(box => box.containsPoint(p))
+        );
+        if (hitSurface) {
+          this._spawnImpact(p);
+          this.scene.remove(b.mesh);
+          this._bullets.splice(i, 1);
+          break;
+        }
       }
     }
   }
@@ -471,7 +489,7 @@ export class Player {
         this.jumps         = 1;
         this.grounded      = false;
       } else if (this.jumps < MAX_JUMPS) {
-        this.vel.y    = JUMP_VEL;
+        this.vel.y    = JUMP_VEL * this._jumpVelMul;
         this.jumps++;
         this.grounded = false;
         if (this.jumps === MAX_JUMPS) {   // second jump = flip
@@ -495,8 +513,8 @@ export class Player {
 
     this._moving = dir.lengthSq() > 0;
     if (this._moving) dir.normalize();
-    this.vel.x = dir.x * SPEED;
-    this.vel.z = dir.z * SPEED;
+    this.vel.x = dir.x * SPEED * this._moveSpeedMul;
+    this.vel.z = dir.z * SPEED * this._moveSpeedMul;
 
     // smoothly rotate mesh to face movement direction
     if (this._moving) {
@@ -593,55 +611,29 @@ export class Player {
   }
 
   _rightArmTargetQ() {
-    if (this._shooting) {
-      const aimWorld = new THREE.Vector3();
-      this.camera.getWorldDirection(aimWorld);
-      // Use full mesh quaternion so arm tracks correctly even when dive-tilted
-      let invMeshQ;
-      if (this._diveTilt > 0) {
-        const diveYaw = Math.atan2(this._diveDir.x, this._diveDir.z);
-        const uprightQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), diveYaw);
-        invMeshQ = uprightQ.slerp(this._diveQ(), this._diveTilt).invert();
-      } else {
-        invMeshQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), -this._meshYaw);
-      }
-      const localAim = aimWorld.clone().applyQuaternion(invMeshQ);
-      return new THREE.Quaternion()
-        .setFromUnitVectors(new THREE.Vector3(0, -1, 0), localAim);
-    }
-    if (this._flipping) {
-      return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.8);
-    }
-    if (this.wallRunning) {
-      return new THREE.Quaternion()
-        .setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.sin(this._walkCycle) * 0.85 * 0.6);
-    }
-    if (this._moving && this.grounded) {
-      return new THREE.Quaternion()
-        .setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.sin(this._walkCycle) * 0.85 * 0.55);
-    }
-    return new THREE.Quaternion(); // identity — arm hangs at rest
+    const aimWorld = new THREE.Vector3();
+    this.camera.getWorldDirection(aimWorld);
+    const invMeshQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this._meshYaw);
+    const localAim = aimWorld.clone().applyQuaternion(invMeshQ);
+    return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), localAim);
   }
 
   _animateMesh(dt) {
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.y = this._meshYaw;
-    // Keep _meshDiveY in sync when not in dive/slide so landing starts from correct y
     if (this._diveTilt <= 0) this._meshDiveY = this.pos.y;
 
-    // Both arms aim when shooting; left arm follows right arm target
-    const aimQ = this._rightArmTargetQ();
-    this._rArmPivot.quaternion.slerp(aimQ, 0.30);
-    if (this._shooting) this._lArmPivot.quaternion.slerp(aimQ, 0.30);
+    // Arm targets — default: identity = arms hang straight at sides
+    let rQ = new THREE.Quaternion();
+    let lQ = new THREE.Quaternion();
 
     // ── shootdodge dive ──────────────────────────────────────────────────────
     if (this._diveTilt > 0) {
-      const diveYaw = Math.atan2(this._diveDir.x, this._diveDir.z);
+      const diveYaw  = Math.atan2(this._diveDir.x, this._diveDir.z);
       const uprightQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), diveYaw);
       this.mesh.quaternion.copy(uprightQ).slerp(this._diveQ(), this._diveTilt);
       const pivot   = new THREE.Vector3(0, 0.95, 0);
       const rotated = pivot.clone().applyQuaternion(this.mesh.quaternion);
-      // Lerp mesh Y toward target: chest-pivot height in air, floor level when sliding
       const targetMeshY = this._sliding
         ? this.pos.y
         : this.pos.y + pivot.y - rotated.y;
@@ -651,27 +643,34 @@ export class Player {
         this._meshDiveY,
         this.pos.z + pivot.z - rotated.z
       );
-      // Scale limb poses with tilt progress
-      this._lArmPivot.rotation.x = -1.1  * this._diveTilt;
       this._lLegPivot.rotation.x = -0.35 * this._diveTilt;
       this._rLegPivot.rotation.x =  0.25 * this._diveTilt;
       this.mesh.scale.set(1, 1, 1);
+      // Superman: arms thrust forward (-X rot) and slightly spread sideways (±Z rot)
+      const fwdQ  = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI * 0.48 * this._diveTilt);
+      const rSprQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -0.28 * this._diveTilt);
+      const lSprQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1),  0.28 * this._diveTilt);
+      rQ.copy(fwdQ).multiply(rSprQ);
+      lQ.copy(fwdQ).multiply(lSprQ);
+      this._rArmPivot.quaternion.slerp(rQ, 0.3);
+      this._lArmPivot.quaternion.slerp(lQ, 0.3);
       return;
     }
 
-    // ── double-jump tuck ─────────────────────────────────────────────────────
+    // ── double-jump backflip + tuck ──────────────────────────────────────────
     if (this._flipping) {
       this._flipAngle += FLIP_SPEED * dt;
-      // sin over [0, 2π] gives a smooth 0→1→0 tuck that peaks at midpoint
+      const done = this._flipAngle >= Math.PI * 2;
+      if (done) { this._flipAngle = 0; this._flipping = false; }
       const tuck = Math.max(0, Math.sin(this._flipAngle / 2));
-      this._lLegPivot.rotation.x =  2.0 * tuck;
-      this._rLegPivot.rotation.x =  2.0 * tuck;
-      this._lArmPivot.rotation.x = -1.4 * tuck;
+      this._lLegPivot.rotation.x = 2.0 * tuck;
+      this._rLegPivot.rotation.x = 2.0 * tuck;
+      this.mesh.rotation.x = done ? 0 : this._flipAngle;
       this.mesh.scale.set(1, 1, 1);
-      if (this._flipAngle >= Math.PI * 2) {
-        this._flipping  = false;
-        this._flipAngle = 0;
-      }
+      rQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -1.4 * tuck);
+      lQ = rQ.clone();
+      this._rArmPivot.quaternion.slerp(rQ, 0.3);
+      this._lArmPivot.quaternion.slerp(lQ, 0.3);
       return;
     }
 
@@ -681,34 +680,66 @@ export class Player {
       const sw = Math.sin(this._walkCycle) * 0.85;
       this._lLegPivot.rotation.x =  sw;
       this._rLegPivot.rotation.x = -sw;
-      this._lArmPivot.rotation.x = -sw * 0.6;
       const camRight = new THREE.Vector3(Math.cos(this.camYaw), 0, -Math.sin(this.camYaw));
       this.mesh.rotation.z += (this._wallNormal.dot(camRight) * 0.32 - this.mesh.rotation.z) * 0.2;
       this.mesh.scale.set(1, 1, 1);
       this.mesh.rotation.x = 0;
+      if (this._shooting) {
+        rQ = this._rightArmTargetQ();
+        lQ = this._weaponMode === 2 ? rQ.clone() : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.5);
+      } else {
+        rQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0),  sw * 0.5);
+        lQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.5);
+      }
+      this._rArmPivot.quaternion.slerp(rQ, 0.25);
+      this._lArmPivot.quaternion.slerp(lQ, 0.25);
       return;
     }
     this.mesh.rotation.z *= 0.75;
+    this.mesh.rotation.x  = 0;
 
-    // ── ground run ───────────────────────────────────────────────────────────
+    // ── ground run / idle ────────────────────────────────────────────────────
     if (this._moving && this.grounded) {
       this._walkCycle += dt * 10;
       const sw = Math.sin(this._walkCycle) * 0.85;
       this._lLegPivot.rotation.x =  sw;
       this._rLegPivot.rotation.x = -sw;
-      this._lArmPivot.rotation.x = -sw * 0.55;
+      if (this._shooting) {
+        rQ = this._rightArmTargetQ();
+        lQ = this._weaponMode === 2 ? rQ.clone() : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.45);
+      } else {
+        rQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0),  sw * 0.45);
+        lQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -sw * 0.45);
+      }
     } else if (this.grounded) {
       this._lLegPivot.rotation.x *= 0.7;
       this._rLegPivot.rotation.x *= 0.7;
-      this._lArmPivot.rotation.x *= 0.7;
+      if (this._shooting) {
+        rQ = this._rightArmTargetQ();
+        if (this._weaponMode === 2) lQ = rQ.clone();
+        // else lQ stays identity — left arm at side
+      }
+      // not shooting, not moving → rQ/lQ stay identity (arms hang at sides)
+    } else {
+      // airborne — arms straight forward (superman)
+      if (this._shooting) {
+        rQ = this._rightArmTargetQ();
+        if (this._weaponMode === 2) lQ = rQ.clone();
+      } else {
+        const fwd = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+        rQ = fwd;
+        lQ = fwd.clone();
+      }
     }
+
+    this._rArmPivot.quaternion.slerp(rQ, 0.25);
+    this._lArmPivot.quaternion.slerp(lQ, 0.25);
 
     // ── squash & stretch (airborne only) ─────────────────────────────────────
     if (!this.grounded) {
       const stretch = 1 + this.vel.y * 0.014;
       this.mesh.scale.y = Math.max(0.72, Math.min(1.35, stretch));
       this.mesh.scale.x = 1 / Math.sqrt(Math.abs(this.mesh.scale.y));
-      this.mesh.rotation.x = 0;
     } else {
       this.mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.3);
     }

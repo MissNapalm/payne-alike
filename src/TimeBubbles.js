@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 
-const BUBBLE_RADIUS   = 4.5;
+const BUBBLE_RADIUS   = 6;
 const GRENADE_GRAVITY = -22;
 const THROW_SPEED     = 11;
 
-export const BUBBLE_LIFE  = 10.0;
-export const BUBBLE_SCALE = 0.01;
+export const BUBBLE_LIFE         = 6;
+export const BUBBLE_SCALE        = 0.1;   // player / target slow (same as Q)
+const        BUBBLE_BULLET_SCALE = 0.002; // bullets crawl at ~2 units/sec inside
 
 export class TimeBubbles {
   constructor(scene) {
@@ -53,18 +54,17 @@ export class TimeBubbles {
   }
 
   timeScaleAt(pos) {
-    let scale = 1.0;
     for (const b of this.bubbles) {
-      const dist = b.pos.distanceTo(pos);
-      if (dist < BUBBLE_RADIUS) {
-        // Smoothstep: full BUBBLE_SCALE at center, blends to 1.0 at edge
-        const t  = dist / BUBBLE_RADIUS;           // 0 = center, 1 = edge
-        const st = t * t * (3 - 2 * t);            // smoothstep curve
-        const s  = BUBBLE_SCALE + st * (1.0 - BUBBLE_SCALE);
-        scale = Math.min(scale, s);
-      }
+      if (b.pos.distanceTo(pos) < BUBBLE_RADIUS) return BUBBLE_SCALE;
     }
-    return scale;
+    return 1.0;
+  }
+
+  bulletScaleAt(pos) {
+    for (const b of this.bubbles) {
+      if (b.pos.distanceTo(pos) < BUBBLE_RADIUS) return BUBBLE_BULLET_SCALE;
+    }
+    return 1.0;
   }
 
   update(realDt, boxes) {

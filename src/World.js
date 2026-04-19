@@ -2,100 +2,101 @@ import * as THREE from 'three';
 
 // ── Texture generators ────────────────────────────────────────────────────────
 
-function brickTex() {
-  const c = document.createElement('canvas');
-  c.width = 256; c.height = 128;
-  const ctx = c.getContext('2d');
-  // mortar
-  ctx.fillStyle = '#5a4030';
-  ctx.fillRect(0, 0, 256, 128);
-  // bricks
-  const bw = 60, bh = 26;
-  for (let row = 0; row <= 5; row++) {
-    const off = row % 2 === 0 ? 0 : bw / 2;
-    for (let col = -1; col <= 5; col++) {
-      const x = col * bw + off + 2;
-      const y = row * bh + 2;
-      const r = 155 + Math.floor(Math.random() * 40);
-      const g = 80  + Math.floor(Math.random() * 20);
-      const b = 40  + Math.floor(Math.random() * 15);
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(x, y, bw - 3, bh - 3);
-    }
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return t;
-}
-
-function concreteTex() {
+// Sci-fi neon grid floor
+function scifiFloorTex() {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 512;
   const ctx = c.getContext('2d');
-
-  // base
-  ctx.fillStyle = '#686868';
+  ctx.fillStyle = '#080c14';
   ctx.fillRect(0, 0, 512, 512);
 
-  // large tile lines
-  ctx.strokeStyle = '#484848';
-  ctx.lineWidth = 3;
+  // major grid — bright cyan
+  ctx.strokeStyle = 'rgba(0,220,255,0.55)';
+  ctx.lineWidth = 2;
   for (let i = 0; i <= 512; i += 128) {
     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
   }
-
-  // medium subdivision lines
-  ctx.strokeStyle = '#595959';
-  ctx.lineWidth = 1.5;
-  for (let i = 0; i <= 512; i += 64) {
+  // minor grid — dim blue
+  ctx.strokeStyle = 'rgba(0,100,180,0.30)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 512; i += 32) {
     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
   }
-
-  // fine hairlines
-  ctx.strokeStyle = 'rgba(60,60,60,0.5)';
-  ctx.lineWidth = 0.8;
-  for (let i = 0; i <= 512; i += 16) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke();
+  // corner dots at major intersections
+  for (let ix = 0; ix <= 4; ix++) for (let iy = 0; iy <= 4; iy++) {
+    ctx.beginPath();
+    ctx.arc(ix * 128, iy * 128, 3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,255,255,0.9)';
+    ctx.fill();
   }
-
-  // diagonal scratch lines
-  ctx.strokeStyle = 'rgba(50,50,50,0.25)';
-  ctx.lineWidth = 0.6;
-  for (let i = -512; i < 1024; i += 48) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 512, 512); ctx.stroke();
-  }
-
-  // dense noise
-  for (let i = 0; i < 4000; i++) {
-    const v = Math.floor(Math.random() * 55);
-    ctx.fillStyle = `rgba(0,0,0,${v / 255})`;
-    ctx.fillRect(Math.random() * 512, Math.random() * 512, 1 + Math.random(), 1 + Math.random());
-  }
-
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
 
-function metalTex() {
+// Sci-fi tech panel wall
+function scifiWallTex() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#0d1220';
+  ctx.fillRect(0, 0, 256, 256);
+
+  // panel borders
+  ctx.strokeStyle = 'rgba(0,180,255,0.5)';
+  ctx.lineWidth = 2;
+  const panels = [[8,8,116,116],[132,8,116,116],[8,132,116,116],[132,132,116,116]];
+  for (const [x,y,w,h] of panels) {
+    ctx.strokeRect(x, y, w, h);
+    // inner inset
+    ctx.strokeStyle = 'rgba(0,100,200,0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x+6, y+6, w-12, h-12);
+    ctx.strokeStyle = 'rgba(0,180,255,0.5)';
+    ctx.lineWidth = 2;
+  }
+  // horizontal accent lines
+  ctx.strokeStyle = 'rgba(80,220,255,0.35)';
+  ctx.lineWidth = 1;
+  for (let y = 20; y < 256; y += 20) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y); ctx.stroke();
+  }
+  // small indicator dots
+  for (let i = 0; i < 8; i++) {
+    const x = 20 + Math.random() * 216, y = 20 + Math.random() * 216;
+    ctx.beginPath();
+    ctx.arc(x, y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(0,255,180,0.8)' : 'rgba(255,80,80,0.7)';
+    ctx.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
+// Sci-fi dark metal platform
+function scifiMetalTex() {
   const c = document.createElement('canvas');
   c.width = 128; c.height = 128;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#3a3a3a';
+  ctx.fillStyle = '#111820';
   ctx.fillRect(0, 0, 128, 128);
-  // grate lines
-  ctx.strokeStyle = '#555';
-  ctx.lineWidth = 3;
-  for (let i = 0; i <= 128; i += 16) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 128); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(128, i); ctx.stroke();
-  }
-  ctx.strokeStyle = '#222';
+  // diagonal hatching
+  ctx.strokeStyle = 'rgba(40,80,120,0.4)';
   ctx.lineWidth = 1;
-  for (let i = 8; i <= 128; i += 16) {
+  for (let i = -128; i < 256; i += 16) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + 128, 128); ctx.stroke();
+  }
+  // bright edge lines
+  ctx.strokeStyle = 'rgba(0,200,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, 126, 126);
+  // grid
+  ctx.strokeStyle = 'rgba(0,120,200,0.2)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 128; i += 32) {
     ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 128); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(128, i); ctx.stroke();
   }
@@ -127,22 +128,21 @@ export class World {
   }
 
   _build(scene) {
-    const brick    = brickTex();
-    const concrete = concreteTex();
-    const metal    = metalTex();
+    const floor_tex = scifiFloorTex();
+    const wall_tex  = scifiWallTex();
+    const metal     = scifiMetalTex();
 
-    const floorMat   = new THREE.MeshLambertMaterial({ map: concrete });
-    const wallMat    = new THREE.MeshLambertMaterial({ map: brick });
-    const ceilMat    = new THREE.MeshLambertMaterial({ color: 0x444444 });
+    const floorMat   = new THREE.MeshLambertMaterial({ map: floor_tex });
+    const ceilMat    = new THREE.MeshLambertMaterial({ color: 0x060a12 });
     const platMat    = new THREE.MeshLambertMaterial({ map: metal });
-    const platMat2   = new THREE.MeshLambertMaterial({ map: brick,  color: 0x8899aa });
+    const platMat2   = new THREE.MeshLambertMaterial({ map: metal, color: 0x8866ff });
 
     const ROOM = 40;
     const CEIL = 10;
 
     // ── Floor ──
-    const fTex = concrete.clone();
-    fTex.repeat.set(10, 10); fTex.needsUpdate = true;
+    const fTex = floor_tex.clone();
+    fTex.repeat.set(8, 8); fTex.needsUpdate = true;
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, ROOM), floorMat);
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
@@ -153,16 +153,15 @@ export class World {
     ceil.position.y = CEIL;
     scene.add(ceil);
 
-    // ── Walls (visual only — player clamped by BOUNDS in Player.js) ──
-    // Tile brick texture per wall
+    // ── Walls ──
     const wallSpecs = [
-      { pos: [0, CEIL/2, -ROOM/2], ry: 0,          rpt: [ROOM/3, CEIL/3] },
-      { pos: [0, CEIL/2,  ROOM/2], ry: Math.PI,     rpt: [ROOM/3, CEIL/3] },
-      { pos: [-ROOM/2, CEIL/2, 0], ry:  Math.PI/2,  rpt: [ROOM/3, CEIL/3] },
-      { pos: [ ROOM/2, CEIL/2, 0], ry: -Math.PI/2,  rpt: [ROOM/3, CEIL/3] },
+      { pos: [0, CEIL/2, -ROOM/2], ry: 0,          rpt: [4, 2] },
+      { pos: [0, CEIL/2,  ROOM/2], ry: Math.PI,     rpt: [4, 2] },
+      { pos: [-ROOM/2, CEIL/2, 0], ry:  Math.PI/2,  rpt: [4, 2] },
+      { pos: [ ROOM/2, CEIL/2, 0], ry: -Math.PI/2,  rpt: [4, 2] },
     ];
     for (const { pos, ry, rpt } of wallSpecs) {
-      const t = brick.clone();
+      const t = wall_tex.clone();
       t.repeat.set(...rpt); t.needsUpdate = true;
       const mat = new THREE.MeshLambertMaterial({ map: t });
       const m = new THREE.Mesh(new THREE.PlaneGeometry(ROOM, CEIL), mat);
@@ -212,7 +211,7 @@ export class World {
 
     // ── Wall-run slabs ───────────────────────────────────────────────────────
     // Tall thin panels — run along their long face to trigger wall-run
-    const wrMat = new THREE.MeshLambertMaterial({ color: 0x4a7090, map: metal });
+    const wrMat = new THREE.MeshLambertMaterial({ color: 0x0033aa, map: metal });
 
     // East corridor — three X-thin panels in a row, run along +X face
     box(scene, this.boxes,  10, 3,   4, 0.5, 6, 7, wrMat);
@@ -228,20 +227,27 @@ export class World {
     box(scene, this.boxes,  -6, 3, -18, 7, 6, 0.5, wrMat);
     box(scene, this.boxes,   6, 3, -18, 7, 6, 0.5, wrMat);
 
-    // ── Lighting ─────────────────────────────────────────────────────────────
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    // ── Lighting (sci-fi) ────────────────────────────────────────────────────
+    scene.add(new THREE.AmbientLight(0x334466, 2.5));
 
-    const sun = new THREE.DirectionalLight(0xfff4e0, 0.9);
-    sun.position.set(8, 9, 6);
-    scene.add(sun);
+    const key = new THREE.DirectionalLight(0xaaddff, 1.8);
+    key.position.set(8, 9, 6);
+    scene.add(key);
 
-    // A couple of fill lights for depth
-    const fill1 = new THREE.PointLight(0x8888ff, 0.6, 30);
-    fill1.position.set(-10, 6, -10);
-    scene.add(fill1);
+    const key2 = new THREE.DirectionalLight(0xffffff, 0.9);
+    key2.position.set(-6, 8, -4);
+    scene.add(key2);
 
-    const fill2 = new THREE.PointLight(0xff8844, 0.4, 25);
-    fill2.position.set(12, 5, 10);
-    scene.add(fill2);
+    const neon1 = new THREE.PointLight(0x00eeff, 3.0, 35);
+    neon1.position.set(-12, 7, -10);
+    scene.add(neon1);
+
+    const neon2 = new THREE.PointLight(0xbb44ff, 2.2, 30);
+    neon2.position.set(14, 6, 12);
+    scene.add(neon2);
+
+    const neon3 = new THREE.PointLight(0x00ff99, 1.8, 25);
+    neon3.position.set(0, 5, -18);
+    scene.add(neon3);
   }
 }
