@@ -31,6 +31,10 @@ export class Targets {
     this._geo       = new THREE.SphereGeometry(RADIUS, 10, 7);
     this._debGeo    = new THREE.SphereGeometry(0.09, 5, 4);
     this._shockGeo  = new THREE.SphereGeometry(0.15, 8, 6);
+
+    // respawn timer used when all targets are dead
+    this._respawnTimer = 0;
+
     this._orbBulGeo = new THREE.SphereGeometry(0.18, 6, 5);
     this._orbBulMat = new THREE.MeshBasicMaterial({ color: 0xff3300 });
     this._usedSpots = new Set();
@@ -215,13 +219,30 @@ export class Targets {
       const b = this._orbBullets[i];
       const bScale = timeBubbles ? timeBubbles.bulletScaleAt(b.mesh.position) : 1.0;
       b.mesh.position.addScaledVector(b.vel, realDt * bScale);
-
       const p = b.mesh.position;
       const oob = p.y < 0 || p.y > 12 || Math.abs(p.x) > 22 || Math.abs(p.z) > 22;
       if (oob) {
         this.scene.remove(b.mesh);
         this._orbBullets.splice(i, 1);
       }
+    }
+
+    // If there are no active targets, start a respawn countdown and
+    // respawn the full set after RESPAWN_DELAY seconds.
+    if (this._targets.length === 0) {
+      if (this._respawnTimer <= 0) {
+        this._respawnTimer = RESPAWN_DELAY;
+      } else {
+        this._respawnTimer -= realDt;
+        if (this._respawnTimer <= 0) {
+          // spawn up to MAX_TARGETS
+          for (let i = 0; i < MAX_TARGETS; i++) this._spawnTarget();
+          this._respawnTimer = 0;
+        }
+      }
+    } else {
+      // reset timer while any targets remain
+      this._respawnTimer = 0;
     }
 
     if (!this._particles) this._particles = [];
