@@ -291,9 +291,20 @@ export class Player {
     }
     this._fPrev = fDown;
 
-    const targetScale = this._diveSlow ? BT_SCALE_DIVE : (this.bulletTimeLeft > 0 ? BT_SCALE_Q : 1.0);
-    const rampSpeed   = this._diveSlow ? 6 : this._btSlow ? 0.5 : 1.2;
-    this.timeScale += (targetScale - this.timeScale) * Math.min(1, rampSpeed * realDt);
+    // Bullet-time / dive timeScale handling
+    // If Q-triggered bullet-time is active, snap immediately to the Q scale (no ramp).
+    if (this.bulletTimeLeft > 0) {
+      this.timeScale = BT_SCALE_Q;
+    } else if (this._diveSlow) {
+      // keep smooth ramping for dive-slow
+      const target = BT_SCALE_DIVE;
+      const rampSpeed = 6;
+      this.timeScale += (target - this.timeScale) * Math.min(1, rampSpeed * realDt);
+    } else {
+      // normal -> ramp back to 1.0 (preserve previous non-Q exit behaviour)
+      const rampSpeed = this._btSlow ? 0.5 : 1.2;
+      this.timeScale += (1.0 - this.timeScale) * Math.min(1, rampSpeed * realDt);
+    }
     this._timeBubbles = timeBubbles;
     const bubbleScale = timeBubbles ? timeBubbles.timeScaleAt(this.pos) : 1.0;
     const dt = realDt * this.timeScale * bubbleScale;
@@ -688,7 +699,7 @@ export class Player {
     if (input.key('KeyD')) dir.addScaledVector(right,  1);
 
     this._moving = dir.lengthSq() > 0;
-    if (this._moving) dir.normalize();
+    if this._moving) dir.normalize();
     this.vel.x = dir.x * SPEED * this._moveSpeedMul;
     this.vel.z = dir.z * SPEED * this._moveSpeedMul;
 
