@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 const SPEED            = 11;
 const JUMP_VEL         = 9;
-const GRAVITY          = -22;
+const GRAVITY          = -35;
 const CHAR_H           = 1.3;
 const PR               = 0.3;
 const BOUNDS           = 19.7;
@@ -12,8 +12,8 @@ const CAM_PIVOT_H      = 1.5;
 const CAM_SIDE         = 0.65;   // over-shoulder right offset
 const MAX_JUMPS        = 2;
 const WR_GRAVITY       = -9;    // reduced gravity on wall → parabolic arc
-const WR_UPBOOST       = 4;     // vel.y set to this if near-zero when sticking
-const WR_DURATION      = 2.0;
+const WR_UPBOOST       = 2;     // vel.y set to this if near-zero when sticking
+const WR_DURATION      = 1.;
 const WJ_SIDE          = 6.5;
 const WJ_UP            = 8.5;
 const CAM_ROLL_MAX     = 0.18;
@@ -100,6 +100,12 @@ export class Player {
     this._bulletSpeedMul = 1.0;
     this._diveUpMul      = 1.0;
 
+    // tunable physics: gravity multiplier and jump-force multiplier
+    // controllable from UI / debugger via player.setGravityMul(...) / player.setJumpForceMul(...)
+    this._gravityMul = 1.0;
+    // _jumpVelMul already exists and drives jump force; keep for API consistency
+    // this._jumpVelMul initialized above
+
     this._flashTimer = 0;
     const flashGeo = new THREE.SphereGeometry(0.09, 6, 4);
     const flashMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -162,135 +168,87 @@ export class Player {
 
   _buildMesh() {
     const root = new THREE.Group();
+    const mat  = new THREE.MeshLambertMaterial({ color: 0xaa44ff, flatShading: true });
 
-    // nicer materials
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x8a4dff,   // purple body
-      roughness: 0.45,
-      metalness: 0.06,
-    });
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: 0xffcc55,   // warm accent (shoulders / trim)
-      roughness: 0.35,
-      metalness: 0.7,
-    });
-    const darkMat = new THREE.MeshStandardMaterial({
-      color: 0x111218,   // visor / gloves / boots
-      roughness: 0.4,
-      metalness: 0.9,
-    });
-
-    // HEAD -> helmet (smoother, slightly larger)
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 12), bodyMat);
+    // HEAD
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 5, 4), mat);
     head.position.y = 1.27;
     root.add(head);
 
-    // VISOR -> flattened dark sphere to suggest a visor
-    const visor = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 8), darkMat);
-    visor.scale.set(1, 0.6, 1.02);
-    visor.position.set(0, 1.28, 0.04);
-    root.add(visor);
-
-    // NECK (slimmer)
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.10, 10), bodyMat);
+    // NECK
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.053, 0.11, 5), mat);
     neck.position.y = 1.17;
     root.add(neck);
 
-    // CHEST — wider shoulders, smoother surface
-    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.30, 16), bodyMat);
+    // CHEST — wider at top (shoulders), tapers to waist
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.118, 0.27, 6), mat);
     chest.position.y = 0.97;
     root.add(chest);
 
-    // decorative shoulder pads (accent)
-    const leftPad = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), accentMat);
-    leftPad.scale.set(1.2, 0.55, 1.0);
-    leftPad.position.set(-0.225, 1.06, 0.05);
-    root.add(leftPad);
-    const rightPad = leftPad.clone();
-    rightPad.position.x = 0.225;
-    root.add(rightPad);
-
-    // WAIST
-    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.155, 0.16, 12), bodyMat);
+    // WAIST — narrowest point
+    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.110, 0.155, 0.17, 6), mat);
     waist.position.y = 0.748;
     root.add(waist);
 
     // HIPS
-    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 12), bodyMat);
+    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 6), mat);
     hips.position.y = 0.595;
     root.add(hips);
 
-    // ARMS — pivot at shoulder joint (preserve pivot names and positions)
+    // ARMS — pivot at shoulder joint
     for (const [xs, prop] of [[-1, '_lArmPivot'], [1, '_rArmPivot']]) {
       const pivot = new THREE.Group();
       pivot.position.set(xs * 0.225, 1.10, 0);
 
-      // upper arm (slightly tapered)
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.26, 12), bodyMat);
-      upper.position.y = -0.135;
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.25, 5), mat);
+      upper.position.y = -0.125;
       pivot.add(upper);
 
-      // elbow joint
-      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 6), bodyMat);
-      elbow.position.y = -0.26;
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.040, 4, 3), mat);
+      elbow.position.y = -0.25;
       pivot.add(elbow);
 
-      // forearm
-      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.037, 0.030, 0.24, 12), bodyMat);
-      fore.position.y = -0.38;
+      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.029, 0.22, 5), mat);
+      fore.position.y = -0.36;
       pivot.add(fore);
 
-      // glove / hand (dark accent)
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.06, 0.085), darkMat);
-      hand.position.y = -0.50;
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.07), mat);
+      hand.position.y = -0.47;
       pivot.add(hand);
 
       this[prop] = pivot;
       root.add(pivot);
     }
 
-    // LEGS — keep pivots at hip joint and slightly tweak proportions
+    // LEGS — pivot at hip joint
     for (const [xs, prop] of [[-1, '_lLegPivot'], [1, '_rLegPivot']]) {
       const pivot = new THREE.Group();
       pivot.position.set(xs * 0.10, 0.522, 0);
 
-      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.058, 0.27, 12), bodyMat);
-      thigh.position.y = -0.135;
+      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.070, 0.055, 0.26, 5), mat);
+      thigh.position.y = -0.13;
       pivot.add(thigh);
 
-      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 8, 6), bodyMat);
+      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 4, 3), mat);
       knee.position.y = -0.26;
       pivot.add(knee);
 
-      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.036, 0.26, 12), bodyMat);
+      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.034, 0.24, 5), mat);
       shin.position.y = -0.38;
       pivot.add(shin);
 
-      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 8, 6), bodyMat);
-      ankle.position.y = -0.52;
+      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 4, 3), mat);
+      ankle.position.y = -0.50;
       pivot.add(ankle);
 
-      // boot (accent/darker)
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.22), darkMat);
-      foot.position.set(0, -0.545, 0.045);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.055, 0.20), mat);
+      foot.position.set(0, -0.522, 0.04);
       pivot.add(foot);
 
       this[prop] = pivot;
       root.add(pivot);
     }
 
-    // small decorative belt / trim
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.03, 8, 24), accentMat);
-    belt.rotation.x = Math.PI / 2;
-    belt.position.y = 0.82;
-    root.add(belt);
-
-    // subtle rim/highlight via emissive accent on chest center
-    const chestAccent = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), accentMat);
-    chestAccent.position.set(0, 0.98, 0.09);
-    root.add(chestAccent);
-
-    // return constructed root (keeps same naming/structure used by rest of the code)
     return root;
   }
 
@@ -417,7 +375,11 @@ export class Player {
 
     // vertical
     if (!this.grounded) {
-      const grav = this._diving ? DIVE_GRAVITY : this.wallRunning ? WR_GRAVITY : GRAVITY;
+      // Respect gravity multiplier option and use a gentler dive gravity factor.
+      const baseGrav = GRAVITY * this._gravityMul;
+      const wallGrav = WR_GRAVITY * this._gravityMul;
+      const diveGrav = baseGrav * 0.55; // same factor previously baked into DIVE_GRAVITY
+      const grav = this._diving ? diveGrav : (this.wallRunning ? wallGrav : baseGrav);
       this.vel.y += grav * dt;
     }
     this._prevY = this.pos.y;
@@ -686,7 +648,7 @@ export class Player {
 
       // gravity on casings so they arc realistically
       if (!c.settled) {
-        c.vel.y += GRAVITY * moveDt;
+        c.vel.y += GRAVITY * this._gravityMul * moveDt;
       }
       c.mesh.position.addScaledVector(c.vel, moveDt);
       c.mesh.rotation.x += c.angVel.x * moveDt;
@@ -751,13 +713,14 @@ export class Player {
       if (this.wallRunning) {
         this.vel.x         = this._wallNormal.x * WJ_SIDE;
         this.vel.z         = this._wallNormal.z * WJ_SIDE;
-        this.vel.y         = WJ_UP;
+          this.vel.y         = WJ_UP;
         this.wallRunning   = false;
         this._wallRunTimer = 0;
         this.jumps         = 1;
         this.grounded      = false;
       } else if (this.jumps < MAX_JUMPS) {
-        this.vel.y    = JUMP_VEL * this._jumpVelMul;
+          // Apply jump velocity with jump multiplier
+          this.vel.y    = JUMP_VEL * this._jumpVelMul;
         this.jumps++;
         this.grounded = false;
         if (this.jumps === MAX_JUMPS) {   // second jump = flip
@@ -1121,5 +1084,14 @@ export class Player {
       .addScaledVector(right,   Math.sin(this._camRoll));
     this.camera.up.copy(tiltedUp);
     this.camera.lookAt(lookTarget);
+  }
+
+  // API helpers to adjust physics at runtime (useful for UI sliders)
+  setGravityMul(v) {
+    this._gravityMul = Math.max(0, v);
+  }
+
+  setJumpForceMul(v) {
+    this._jumpVelMul = Math.max(0, v);
   }
 }
