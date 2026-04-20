@@ -192,6 +192,13 @@ document.title = 'Neuro Runner';
   });
 })();
 
+// simple lighting for standard materials
+const amb = new THREE.AmbientLight(0xffffff, 0.35);
+scene.add(amb);
+const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+dir.position.set(3, 6, 2);
+scene.add(dir);
+
 // ── Game loop ────────────────────────────────────────────────────────────────
 let prev = performance.now();
 function loop(now) {

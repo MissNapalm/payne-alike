@@ -162,87 +162,135 @@ export class Player {
 
   _buildMesh() {
     const root = new THREE.Group();
-    const mat  = new THREE.MeshLambertMaterial({ color: 0xaa44ff, flatShading: true });
 
-    // HEAD
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.11, 5, 4), mat);
+    // nicer materials
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x8a4dff,   // purple body
+      roughness: 0.45,
+      metalness: 0.06,
+    });
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: 0xffcc55,   // warm accent (shoulders / trim)
+      roughness: 0.35,
+      metalness: 0.7,
+    });
+    const darkMat = new THREE.MeshStandardMaterial({
+      color: 0x111218,   // visor / gloves / boots
+      roughness: 0.4,
+      metalness: 0.9,
+    });
+
+    // HEAD -> helmet (smoother, slightly larger)
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 12), bodyMat);
     head.position.y = 1.27;
     root.add(head);
 
-    // NECK
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.043, 0.053, 0.11, 5), mat);
+    // VISOR -> flattened dark sphere to suggest a visor
+    const visor = new THREE.Mesh(new THREE.SphereGeometry(0.095, 12, 8), darkMat);
+    visor.scale.set(1, 0.6, 1.02);
+    visor.position.set(0, 1.28, 0.04);
+    root.add(visor);
+
+    // NECK (slimmer)
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.10, 10), bodyMat);
     neck.position.y = 1.17;
     root.add(neck);
 
-    // CHEST — wider at top (shoulders), tapers to waist
-    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.155, 0.118, 0.27, 6), mat);
+    // CHEST — wider shoulders, smoother surface
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.13, 0.30, 16), bodyMat);
     chest.position.y = 0.97;
     root.add(chest);
 
-    // WAIST — narrowest point
-    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.110, 0.155, 0.17, 6), mat);
+    // decorative shoulder pads (accent)
+    const leftPad = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), accentMat);
+    leftPad.scale.set(1.2, 0.55, 1.0);
+    leftPad.position.set(-0.225, 1.06, 0.05);
+    root.add(leftPad);
+    const rightPad = leftPad.clone();
+    rightPad.position.x = 0.225;
+    root.add(rightPad);
+
+    // WAIST
+    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.155, 0.16, 12), bodyMat);
     waist.position.y = 0.748;
     root.add(waist);
 
     // HIPS
-    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 6), mat);
+    const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.148, 0.14, 12), bodyMat);
     hips.position.y = 0.595;
     root.add(hips);
 
-    // ARMS — pivot at shoulder joint
+    // ARMS — pivot at shoulder joint (preserve pivot names and positions)
     for (const [xs, prop] of [[-1, '_lArmPivot'], [1, '_rArmPivot']]) {
       const pivot = new THREE.Group();
       pivot.position.set(xs * 0.225, 1.10, 0);
 
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.25, 5), mat);
-      upper.position.y = -0.125;
+      // upper arm (slightly tapered)
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.040, 0.26, 12), bodyMat);
+      upper.position.y = -0.135;
       pivot.add(upper);
 
-      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.040, 4, 3), mat);
-      elbow.position.y = -0.25;
+      // elbow joint
+      const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.038, 8, 6), bodyMat);
+      elbow.position.y = -0.26;
       pivot.add(elbow);
 
-      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.029, 0.22, 5), mat);
-      fore.position.y = -0.36;
+      // forearm
+      const fore = new THREE.Mesh(new THREE.CylinderGeometry(0.037, 0.030, 0.24, 12), bodyMat);
+      fore.position.y = -0.38;
       pivot.add(fore);
 
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.07), mat);
-      hand.position.y = -0.47;
+      // glove / hand (dark accent)
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.06, 0.085), darkMat);
+      hand.position.y = -0.50;
       pivot.add(hand);
 
       this[prop] = pivot;
       root.add(pivot);
     }
 
-    // LEGS — pivot at hip joint
+    // LEGS — keep pivots at hip joint and slightly tweak proportions
     for (const [xs, prop] of [[-1, '_lLegPivot'], [1, '_rLegPivot']]) {
       const pivot = new THREE.Group();
       pivot.position.set(xs * 0.10, 0.522, 0);
 
-      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.070, 0.055, 0.26, 5), mat);
-      thigh.position.y = -0.13;
+      const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.058, 0.27, 12), bodyMat);
+      thigh.position.y = -0.135;
       pivot.add(thigh);
 
-      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 4, 3), mat);
+      const knee = new THREE.Mesh(new THREE.SphereGeometry(0.052, 8, 6), bodyMat);
       knee.position.y = -0.26;
       pivot.add(knee);
 
-      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.034, 0.24, 5), mat);
+      const shin = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.036, 0.26, 12), bodyMat);
       shin.position.y = -0.38;
       pivot.add(shin);
 
-      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 4, 3), mat);
-      ankle.position.y = -0.50;
+      const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.034, 8, 6), bodyMat);
+      ankle.position.y = -0.52;
       pivot.add(ankle);
 
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.055, 0.20), mat);
-      foot.position.set(0, -0.522, 0.04);
+      // boot (accent/darker)
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.06, 0.22), darkMat);
+      foot.position.set(0, -0.545, 0.045);
       pivot.add(foot);
 
       this[prop] = pivot;
       root.add(pivot);
     }
 
+    // small decorative belt / trim
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.03, 8, 24), accentMat);
+    belt.rotation.x = Math.PI / 2;
+    belt.position.y = 0.82;
+    root.add(belt);
+
+    // subtle rim/highlight via emissive accent on chest center
+    const chestAccent = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), accentMat);
+    chestAccent.position.set(0, 0.98, 0.09);
+    root.add(chestAccent);
+
+    // return constructed root (keeps same naming/structure used by rest of the code)
     return root;
   }
 
