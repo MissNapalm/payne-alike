@@ -913,7 +913,6 @@ export class Player {
     if (this._flipping) {
       this._flipAngle += FLIP_SPEED * dt;
       const done = this._flipAngle >= Math.PI * 2;
-      if (done) { this._flipAngle = 0; this._flipping = false; }
 
       const tuck = Math.max(0, Math.sin(this._flipAngle / 2));
       this._lLegPivot.rotation.x = 2.0 * tuck;
@@ -944,6 +943,30 @@ export class Player {
       );
       // apply rotation
       this.mesh.quaternion.copy(meshQ);
+
+      // If flip just finished, snap mesh yaw to avoid any residual sideways motion.
+      if (done) {
+        this._flipAngle = 0;
+        this._flipping = false;
+        // ensure mesh yaw state matches final flip yaw so next-frame rotation doesn't jump
+        this._meshYaw = flipYaw;
+
+        // Aggressively snap rotation to yaw-only to remove any residual pitch/roll.
+        // This prevents the brief sidetilt observed after finishing the flip.
+        const yawQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this._meshYaw);
+        this.mesh.quaternion.copy(yawQ);
+        // ensure Euler channels cleared (keeps renderer consistent)
+        this.mesh.rotation.x = 0;
+        this.mesh.rotation.z = 0;
+
+        // Recompute pivot anchoring with yaw-only orientation so position doesn't jump.
+        const snappedRotated = pivot.clone().applyQuaternion(this.mesh.quaternion);
+        this.mesh.position.set(
+          this.pos.x + pivot.x - snappedRotated.x,
+          this.pos.y + pivot.y - snappedRotated.y,
+          this.pos.z + pivot.z - snappedRotated.z
+        );
+      }
 
       // arms tuck in during flip
       rQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -1.4 * tuck);
