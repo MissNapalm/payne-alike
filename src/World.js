@@ -138,7 +138,7 @@ export class World {
     const platMat2   = new THREE.MeshLambertMaterial({ map: metal, color: 0x8866ff });
 
     const ROOM = 40;
-    const CEIL = 10;
+    const CEIL = 30;
 
     // ── Floor ──
     const fTex = floor_tex.clone();

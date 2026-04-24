@@ -165,7 +165,7 @@ export class Targets {
     this._particles.push({ shock, shockMat, debris, light, life: 0.55 });
   }
 
-  update(realDt, timeBubbles, camera, playerPos, orbsShoot) {
+  update(realDt, timeBubbles, camera, playerPos, orbsShoot, timeScale = 1.0) {
     // Targets (bad-guy spheres)
     for (let i = this._targets.length - 1; i >= 0; i--) {
       const t = this._targets[i];
@@ -182,10 +182,11 @@ export class Targets {
         continue;
       }
 
-      // Not frozen — normal behaviour
+      // Not frozen — normal behaviour; slow spheres slightly in global bullet time
+      const moveDt = realDt * timeScale;
 
       // Bobbing
-      t.phase += realDt * BOB_SPEED;
+      t.phase += moveDt * BOB_SPEED;
       p.y = t.center.y + Math.sin(t.phase) * BOB_AMP;
 
       // Move center toward waypoint (horizontal only)
@@ -195,7 +196,7 @@ export class Targets {
         t.waypoint = this._randomWaypoint();
       } else {
         toWp.normalize();
-        t.center.addScaledVector(toWp, t.speed * realDt);
+        t.center.addScaledVector(toWp, t.speed * moveDt);
       }
 
       // Smoothly move mesh toward center (gives nicer motion)

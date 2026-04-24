@@ -568,7 +568,7 @@ export class Player {
         }
 
         const hitSurface = (
-          p.y < 0 || p.y > 11 ||
+          p.y < 0 || p.y > 35 ||
           Math.abs(p.x) > BOUNDS + 1 ||
           Math.abs(p.z) > BOUNDS + 1 ||
           boxes.some(box => box.containsPoint(p))

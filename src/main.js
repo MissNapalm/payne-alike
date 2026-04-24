@@ -210,7 +210,7 @@ function loop(now) {
     // ensure bubbles are processed first so grenades/bullets freeze immediately
     timeBubbles.update(dt, world.boxes);
     player.update(dt, input, world.boxes, targets, timeBubbles);
-    targets.update(dt, timeBubbles, camera, player.pos, orbsShootCb.checked);
+    targets.update(dt, timeBubbles, camera, player.pos, orbsShootCb.checked, player.timeScale);
   }
 
   const btActive = player.timeScale < 1;
